@@ -25,13 +25,13 @@ fn main() -> std::io::Result<()> {
 
         let tree = zero_build_tree(board, 1_000_000_000, settings, &mut network, &mut rng, stop_cond);
 
-        let mv = if tree[0].visits == 0 {
+        let mv = if tree[0].full_visits == 0 {
             board.random_available_move(&mut rng)
         } else {
-            tree.best_move()
+            tree.best_move(&mut rng)
         };
 
-        let info = format!("nodes: {}, wdl: {:?}", tree[0].visits, tree.wdl());
+        let info = format!("nodes: {}, wdl: {:?}", tree[0].full_visits, tree.wdl());
         (mv, info)
     };
 

@@ -8,7 +8,7 @@ use board_game::board::{Board, Outcome};
 use cuda_sys::wrapper::handle::Device;
 
 use crate::network::{Network, ZeroEvaluation};
-use crate::old_zero::{KeepResult, Request, Response, RunResult, Tree, ZeroSettings, ZeroState};
+use crate::non_batch_zero::{KeepResult, Request, Response, RunResult, Tree, ZeroSettings, ZeroState};
 use crate::selfplay::core::{MoveSelector, Position, Simulation};
 use crate::selfplay::protocol::{Command, GeneratorUpdate, Settings};
 

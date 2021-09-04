@@ -16,16 +16,17 @@ fn main() {
     let mut bot = ZeroBot::new(100_000, settings, network, thread_rng());
 
     let mut board = AtaxxBoard::from_fen("x3xox/3xxox/3xoxx/3oxxx/2ooox1/xo1oox1/xx4x");
+    let mut rng = thread_rng();
 
     let tree = bot.build_tree(&board);
-    println!("{}", tree.display(1));
+    println!("{}", tree.display(1, false));
 
     println!("{}", board);
-    board.play(tree.best_move());
+    board.play(tree.best_move(&mut rng));
     println!("{}", board);
 
     println!("{}", board.to_fen());
 
     println!("{:?}", tree.wdl());
-    println!("{:?}", tree.best_move());
+    println!("{:?}", tree.best_move(&mut rng));
 }

@@ -3,11 +3,11 @@ use std::time::Instant;
 use alpha_zero::games::ataxx_cnn_network::AtaxxCNNNetwork;
 use alpha_zero::games::ataxx_cpu_network::AtaxxCPUNetwork;
 use alpha_zero::network::Network;
+use alpha_zero::non_batch_zero::{Tree, zero_build_tree, ZeroBot, ZeroSettings};
 use alpha_zero::util::PanicRng;
-use alpha_zero::old_zero::{Tree, zero_build_tree, ZeroSettings, ZeroBot};
 use board_game::games::ataxx::AtaxxBoard;
-use cuda_sys::wrapper::handle::Device;
 use board_game::util::bot_game;
+use cuda_sys::wrapper::handle::Device;
 
 fn main() {
     // let torch_path = "../data/derp/good_test_loop/gen_40/model_1_epochs.pt";
