@@ -3,7 +3,7 @@
 members = [
     "cuda-sys",
     "cuda-nn-eval",
-
+    "nn-eval-opencl",
     "board-game",
     "alpha-zero",
 ]

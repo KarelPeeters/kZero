@@ -219,7 +219,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db507a7679252d2276ed0dd8113c6875ec56d3089f9225b2b42c30cc1f8e5c89"
 dependencies = [
- "nom 6.1.2",
+    "nom 6.1.2",
 ]
 
 [[package]]
@@ -229,14 +229,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "cl-sys"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8573fa3ff8acd6c49e8e113296c54277e82376b96c6ca6307848632cce38e44"
+dependencies = [
+    "libc",
+]
+
+[[package]]
+name = "cl3"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68fdb522345cabcdd77098487d15632dd39e79ec50ccdc81073bf534b55b3da7"
+dependencies = [
+    "cl-sys",
+    "libc",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "853eda514c284c2287f4bf20ae614f8781f40a81d32ecda6e91449304dfe077c"
 dependencies = [
- "glob",
- "libc",
- "libloading",
+    "glob",
+    "libc",
+    "libloading",
 ]
 
 [[package]]
@@ -761,8 +780,8 @@ dependencies = [
  "ndarray 0.15.3",
  "noisy_float",
  "num-integer",
- "num-traits",
- "rand 0.8.4",
+    "num-traits",
+    "rand 0.8.4",
 ]
 
 [[package]]
@@ -772,12 +791,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d36047f46c69ef97b60e7b069a26ce9a15cd8a7852eddb6991ea94a83ba36a78"
 
 [[package]]
+name = "nn-eval-opencl"
+version = "0.1.0"
+dependencies = [
+    "itertools",
+    "opencl3",
+]
+
+[[package]]
 name = "noisy_float"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "978fe6e6ebc0bf53de533cd456ca2d9de13de13856eda1518a285d7705a213af"
 dependencies = [
- "num-traits",
+    "num-traits",
 ]
 
 [[package]]
@@ -906,8 +933,8 @@ version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05499f3756671c15885fee9034446956fff3f243d6077b91e5767df161f766b3"
 dependencies = [
- "hermit-abi",
- "libc",
+    "hermit-abi",
+    "libc",
 ]
 
 [[package]]
@@ -915,6 +942,16 @@ name = "once_cell"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
+
+[[package]]
+name = "opencl3"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8862f86c2b3f757038243318edb55a47b1be7d46376fe6bdd9aedd1b0074902"
+dependencies = [
+    "cl3",
+    "libc",
+]
 
 [[package]]
 name = "openssl-probe"
