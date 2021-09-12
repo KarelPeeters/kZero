@@ -8,7 +8,7 @@ use opencl3::kernel::{ExecuteKernel, Kernel};
 use opencl3::memory::{CL_MAP_READ, CL_MAP_WRITE};
 use opencl3::program::{CL_STD_3_0, Program};
 use opencl3::svm::SvmVec;
-use opencl3::types::{CL_BLOCKING, cl_float, cl_int, CL_NON_BLOCKING};
+use opencl3::types::{CL_BLOCKING, cl_int, CL_NON_BLOCKING};
 
 fn main() {
     const PROGRAM_SOURCE: &str = include_str!("kernels/conv.cl");
@@ -28,6 +28,10 @@ fn main() {
     let device = Device::new(device);
     println!("Using device {:?}", device.name().unwrap());
 
+    println!("Max local mem size: {:?}", device.local_mem_size().unwrap());
+    println!("  max work group size: {:?}", device.max_work_group_size().unwrap());
+    println!("  preferred group size multiple: {:?}", device.preferred_work_group_size_multiple().unwrap());
+
     //print some info
     println!("  version: {}", device.version().unwrap());
     println!("  c_version: {}", device.opencl_c_version().unwrap());
@@ -38,37 +42,44 @@ fn main() {
     // Create a Context on an OpenCL device
     let context = Context::from_device(&device).expect("Context::from_device failed");
 
-    let batch_size: cl_int = 100;
+    let batch_size = 128;
     let conv_count = 16;
-    let image_width: cl_int = 7;
-    let filter_size: cl_int = 3;
+    let image_width = 7;
+    let filter_size = 3;
     let half_filter_size = filter_size / 2;
-    let channels_in = 32;
-    let channels_out = 32;
+    let channels = 32;
     let res = false;
     let relu = false;
+
+    // let local_size = batch_size * channels * filter_size * filter_size;
+    // println!("local size: {}", local_size);
 
     // Build the OpenCL program source and create the kernel.
     let mut options = String::new();
     options += CL_STD_3_0;
-    if res {
-        assert_eq!(channels_in, channels_out);
-        options += "-D RES ";
-    }
-    if relu {
-        options += "-D RELU ";
-    }
+    if res { options += "-D RES "; }
+    if relu { options += "-D RELU "; }
     write!(
         &mut options,
-        "-D F={} -D HF={} -D S={} -D CI={} -D CO={}",
-        filter_size, half_filter_size, image_width, channels_in, channels_out
+        "-D F={} -D HF={} -D S={} -D C={}",
+        filter_size, half_filter_size, image_width, channels
     ).unwrap();
 
-    let program = Program::create_and_build_from_source(&context, PROGRAM_SOURCE, &options)
+    let mut program = Program::create_from_source(&context, PROGRAM_SOURCE)
         .unwrap_or_else(|e| {
             eprintln!("Failed to compile kernel:\n{}", e);
             panic!();
         });
+    let build_result = program.build(context.devices(), &options);
+    match build_result {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("Program build error: {} {:?}", e, e);
+            eprintln!("{}", program.get_build_log(context.devices()[0]).unwrap());
+            panic!();
+        }
+    }
+
     let kernel = Kernel::create(&program, KERNEL_NAME).expect("Kernel::create failed");
 
     // Create a command_queue on the Context's device
@@ -81,15 +92,15 @@ fn main() {
         .expect("CommandQueue::create_with_properties failed");
 
     // The input data
-    let image_len = (batch_size * channels_in * image_width * image_width) as usize;
-    let filter_len = (channels_out * channels_in * filter_size * filter_size) as usize;
+    let image_len = (batch_size * channels * image_width * image_width) as usize;
+    let filter_len = (channels * channels * filter_size * filter_size) as usize;
 
-    let mut main_svm = SvmVec::<cl_float>::allocate(&context, image_len)
+    let mut main_svm = SvmVec::<f32>::allocate(&context, image_len)
         .expect("SVM allocation failed");
-    let mut second_svm = SvmVec::<cl_float>::allocate(&context, image_len)
+    let mut second_svm = SvmVec::<f32>::allocate(&context, image_len)
         .expect("SVM allocation failed");
 
-    let mut filter_svm = SvmVec::<cl_float>::allocate(&context, filter_len)
+    let mut filter_svm = SvmVec::<f32>::allocate(&context, filter_len)
         .expect("SVM allocation failed");
 
     let needs_map = !main_svm.is_fine_grained();
@@ -97,7 +108,7 @@ fn main() {
     if needs_map {
         queue.enqueue_svm_map(CL_BLOCKING, CL_MAP_WRITE, &mut filter_svm, &[]).unwrap();
     }
-    let filter_array = vec![1.0 / (filter_size * filter_size * channels_in) as f32; filter_len];
+    let filter_array = vec![1.0 / (filter_size * filter_size * channels) as f32; filter_len];
     filter_svm.clone_from_slice(&filter_array);
     if needs_map {
         queue.enqueue_svm_unmap(&filter_svm, &[]).unwrap();
@@ -123,11 +134,12 @@ fn main() {
         // Run the kernel on the input data
         for _ in 0..conv_count {
             ExecuteKernel::new(&kernel)
-                .set_arg(&batch_size)
+                .set_arg(&(batch_size as cl_int))
                 .set_arg_svm(main_svm.as_mut_ptr())
                 .set_arg_svm(filter_svm.as_mut_ptr())
                 .set_arg_svm(second_svm.as_mut_ptr())
-                .set_global_work_sizes(&[channels_out as usize, image_width as usize, image_width as usize])
+                .set_global_work_sizes(&[channels as usize, image_width as usize, image_width as usize])
+                .set_local_work_sizes(&[channels, 1, 1])
                 .enqueue_nd_range(&queue).unwrap();
 
             std::mem::swap(&mut main_svm, &mut second_svm);
