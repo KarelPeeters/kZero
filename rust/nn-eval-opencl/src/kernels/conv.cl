@@ -24,7 +24,7 @@ Required defines:
 kernel void convolution(
     const int batch_size,
     // B x C x S x S
-    const global float *restrict input,
+    global float *restrict input,
     // C x C x F x F
     const global float *restrict filter,
     // B x C x S x S

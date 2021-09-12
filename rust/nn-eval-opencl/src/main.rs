@@ -43,7 +43,7 @@ fn main() {
     let context = Context::from_device(&device).expect("Context::from_device failed");
 
     let batch_size = 128;
-    let conv_count = 16;
+    let conv_count = 20;
     let image_width = 7;
     let filter_size = 3;
     let half_filter_size = filter_size / 2;

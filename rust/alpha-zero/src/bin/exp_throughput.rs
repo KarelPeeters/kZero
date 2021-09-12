@@ -15,7 +15,7 @@ fn main() {
 
     let iterations = 10;
 
-    for batch_size in [1, 2, 5, 10, 100, 200, 500, 800, 1000, 2000, 10_000] {
+    for batch_size in [64, 128, 256, 512, 1024] {
         let mut network = AtaxxCNNNetwork::load(path, batch_size, Device::new(0));
         let boards = (0..batch_size)
             .map(|_| random_board_with_moves(&AtaxxBoard::default(), 2, &mut rng))
