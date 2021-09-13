@@ -22,7 +22,6 @@ Required defines:
 #define INDEX4(v, i0, i1, i2, i3, s1, s2, s3) v[i0*(s1*s2*s3) + i1*(s2*s3) + i2*s3 + i3]
 
 kernel void convolution(
-    const int batch_size,
     // B x C x S x S
     global float *restrict input,
     // C x C x F x F
@@ -31,64 +30,57 @@ kernel void convolution(
     global float *restrict output
 ) {
     // local copy of the input
-    // C x F x F
-    local float input_local[C * F * F];
+    local float input_local[C * S * S];
 
-    // each kernel computes a single output value
-    int co = get_global_id(0);
-    int ox = get_global_id(1);
-    int oy = get_global_id(2);
+    // each kernel computes a single output channel
+    int b = get_global_id(0);
+    int co = get_global_id(1);
 
     // ... and copies a single input channel
-    int copy_ci = get_local_id(0);
+    int copy_ci = get_local_id(1);
 
-    for (int b = 0; b < batch_size; b++) {
-        // copy input into local memory
-        #pragma unroll
-        for (int fx = 0; fx < F; fx++) {
-            #pragma unroll
-            for (int fy = 0; fy < F; fy++) {
-                int ix = ox + fx - HF;
-                int iy = oy + fy - HF;
-
-                if (0 <= ix && ix < S && 0 <= iy && iy < S) {
-                    float value = INDEX3(input, copy_ci, ix, iy, S, S);
-                    INDEX3(input_local, copy_ci, fx, fy, F, F) = value;
-                }
-            }
+    // copy input into local memory
+    for (int ix = 0; ix < S; ix++) {
+        for (int iy = 0; iy < S; iy++) {
+            float value = INDEX3(input, copy_ci, ix, iy, S, S);
+            INDEX3(input_local, copy_ci, ix, iy, S, S) = value;
         }
+    }
 
-        // wait for all threads to finish copying
-        barrier(CLK_LOCAL_MEM_FENCE);
+    // wait for all threads to finish copying
+    barrier(CLK_LOCAL_MEM_FENCE);
 
-        // do the actual computation
-        float total = 0.0;
+    // do the actual computation
+    for (int ox = 0; ox < S; ox++) {
+        for (int oy = 0; oy < S; oy++) {
+            float total = 0.0;
 
-        for (int ci = 0; ci < C; ci++) {
-            #pragma unroll
-            for (int fx = 0; fx < F; fx++) {
+            for (int ci = 0; ci < C; ci++) {
                 #pragma unroll
-                for (int fy = 0; fy < F; fy++) {
-                    int ix = ox + fx - HF;
-                    int iy = oy + fy - HF;
+                for (int fx = 0; fx < F; fx++) {
+                    #pragma unroll
+                    for (int fy = 0; fy < F; fy++) {
+                        int ix = ox + fx - HF;
+                        int iy = oy + fy - HF;
 
-                    if (0 <= ix && ix < S && 0 <= iy && iy < S) {
-                        float i = INDEX3(input_local, ci, fx, fy, F, F);
-                        float f = INDEX4(filter, co, ci, fx, fy, C, F, F);
-                        total += f * i;
+                        if (0 <= ix && ix < S && 0 <= iy && iy < S) {
+                            float i = INDEX3(input_local, ci, ix, iy, S, S);
+                            float f = INDEX4(filter, co, ci, fx, fy, C, F, F);
+                            total += f * i;
+                        }
                     }
                 }
             }
+
+            #ifdef RES
+            total += INDEX3(input_local, co, ox, oy, S, S);
+            #endif
+
+            #ifdef RELU
+            total = max(total, 0.0f);
+            #endif
+
+            INDEX4(output, b, co, ox, oy, C, S, S) = total;
         }
-
-        #ifdef RES
-        total += INDEX3(input_local, co, HF, HF, S, S);
-        #endif
-
-        #ifdef RELU
-        total = max(total, 0.0f);
-        #endif
-
-        INDEX4(output, b, co, ox, oy, C, S, S) = total;
     }
 }

@@ -8,7 +8,7 @@ use opencl3::kernel::{ExecuteKernel, Kernel};
 use opencl3::memory::{CL_MAP_READ, CL_MAP_WRITE};
 use opencl3::program::{CL_STD_3_0, Program};
 use opencl3::svm::SvmVec;
-use opencl3::types::{CL_BLOCKING, cl_int, CL_NON_BLOCKING};
+use opencl3::types::{CL_BLOCKING, CL_NON_BLOCKING};
 
 fn main() {
     const PROGRAM_SOURCE: &str = include_str!("kernels/conv.cl");
@@ -134,12 +134,11 @@ fn main() {
         // Run the kernel on the input data
         for _ in 0..conv_count {
             ExecuteKernel::new(&kernel)
-                .set_arg(&(batch_size as cl_int))
                 .set_arg_svm(main_svm.as_mut_ptr())
                 .set_arg_svm(filter_svm.as_mut_ptr())
                 .set_arg_svm(second_svm.as_mut_ptr())
-                .set_global_work_sizes(&[channels as usize, image_width as usize, image_width as usize])
-                .set_local_work_sizes(&[channels, 1, 1])
+                .set_global_work_sizes(&[batch_size as usize, channels])
+                .set_local_work_sizes(&[1, channels])
                 .enqueue_nd_range(&queue).unwrap();
 
             std::mem::swap(&mut main_svm, &mut second_svm);

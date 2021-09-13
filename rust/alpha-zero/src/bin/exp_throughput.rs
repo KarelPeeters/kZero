@@ -13,9 +13,9 @@ fn main() {
     let path = "../data/ataxx/test_loop/training/gen_264/model_1_epochs.onnx";
     let mut rng = thread_rng();
 
-    let iterations = 10;
+    let iterations = 10_000;
 
-    for batch_size in [64, 128, 256, 512, 1024] {
+    for batch_size in [256] {
         let mut network = AtaxxCNNNetwork::load(path, batch_size, Device::new(0));
         let boards = (0..batch_size)
             .map(|_| random_board_with_moves(&AtaxxBoard::default(), 2, &mut rng))
