@@ -2,7 +2,7 @@ use bytemuck::cast_slice_mut;
 use itertools::{Itertools, zip_eq};
 
 use cuda_sys::wrapper::handle::Device;
-use nn_graph::cpu::Tensor;
+use nn_graph::cpu::STensor;
 use nn_graph::graph::{Graph, Value};
 use nn_graph::ndarray::{Dimension, IxDyn};
 
@@ -18,7 +18,7 @@ pub fn check_cudnn(graph: &Graph, check_data_bytes: &[u8]) {
 
 const ERROR_TOLERANCE: f32 = 0.0001;
 
-pub fn assert_outputs_match(expected_outputs: &[Tensor], outputs: &[Tensor], print: bool) {
+pub fn assert_outputs_match(expected_outputs: &[STensor], outputs: &[STensor], print: bool) {
     assert_eq!(expected_outputs.len(), outputs.len(), "Wrong number of outputs");
 
     let mut max_error = 0.0;
@@ -42,7 +42,7 @@ pub fn assert_outputs_match(expected_outputs: &[Tensor], outputs: &[Tensor], pri
     }
 }
 
-pub fn eval_cudnn(graph: &Graph, batch_size: usize, inputs: &[Tensor]) -> Vec<Tensor> {
+pub fn eval_cudnn(graph: &Graph, batch_size: usize, inputs: &[STensor]) -> Vec<STensor> {
     let inputs = inputs.iter()
         .map(|x| x.as_slice().expect("Only sliceable inputs supported in test framework"))
         .collect_vec();
@@ -54,7 +54,7 @@ pub fn eval_cudnn(graph: &Graph, batch_size: usize, inputs: &[Tensor]) -> Vec<Te
     let outputs = zip_eq(graph.outputs(), gpu_outputs)
         .map(|(&value, output)| {
             let shape = graph[value].shape.eval(batch_size);
-            Tensor::from_shape_vec(&*shape.dims, output.clone())
+            STensor::from_shape_vec(&*shape.dims, output.clone())
                 .expect("GPU output has wrong length")
         })
         .collect_vec();
@@ -63,7 +63,7 @@ pub fn eval_cudnn(graph: &Graph, batch_size: usize, inputs: &[Tensor]) -> Vec<Te
 }
 
 /// Load the check data into `(batch_size, inputs, expected_outputs)`.
-pub fn load_check_data(graph: &Graph, check_data_bytes: &[u8]) -> (usize, Vec<Tensor>, Vec<Tensor>) {
+pub fn load_check_data(graph: &Graph, check_data_bytes: &[u8]) -> (usize, Vec<STensor>, Vec<STensor>) {
     assert!(check_data_bytes.len() >= 1, "Check data must have at least one byte, the batch size");
     let batch_size = check_data_bytes[0] as usize;
 
@@ -87,11 +87,11 @@ pub fn load_check_data(graph: &Graph, check_data_bytes: &[u8]) -> (usize, Vec<Te
 }
 
 /// Load the given values from the buffer while advancing it.
-fn load_check_values(graph: &Graph, batch_size: usize, buf: &mut &[f32], values: &[Value]) -> Vec<Tensor> {
+fn load_check_values(graph: &Graph, batch_size: usize, buf: &mut &[f32], values: &[Value]) -> Vec<STensor> {
     values.iter()
         .map(|&value| {
             let shape = graph[value].shape.eval(batch_size);
-            let tensor = Tensor::from_shape_vec(
+            let tensor = STensor::from_shape_vec(
                 IxDyn(&shape.dims),
                 buf[0..shape.size()].to_vec(),
             ).unwrap();

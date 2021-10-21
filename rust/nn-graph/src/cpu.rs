@@ -3,14 +3,15 @@ use std::fmt::{Debug, Formatter};
 use std::time::Instant;
 
 use itertools::Itertools;
-use ndarray::{ArcArray, Array4, ArrayView4, IxDyn, SliceInfo, SliceInfoElem};
+use ndarray::{ArcArray, Array4, ArrayD, ArrayView4, IxDyn, SliceInfo, SliceInfoElem};
 
-use crate::graph::{ConvShape, Graph, Operation, Value, ValueInfo};
+use crate::graph::{ConvDetails, Graph, Operation, Value, ValueInfo};
 
-/// We're using an ArcArray so reshaping is free.
-pub type Tensor = ArcArray<f32, IxDyn>;
+/// We're using an ArcArray so reshaping and slicing are free.
+pub type STensor = ArcArray<f32, IxDyn>;
+pub type Tensor = ArrayD<f32>;
 
-pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&Tensor]) -> ExecutionInfo {
+pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&STensor]) -> ExecutionInfo {
     assert_eq!(graph.inputs().len(), inputs.len(), "Wrong input count");
 
     let mut map: HashMap<Value, CalculatedValue> = HashMap::default();
@@ -22,13 +23,13 @@ pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&Tensor]) -
 
         let start_time = Instant::now();
 
-        let result: Tensor = match operation {
+        let result: STensor = match operation {
             &Operation::Input { index } => {
                 inputs[index].to_shared()
             }
             Operation::Constant { data } => {
                 let data = (&**data).clone();
-                Tensor::from_shape_vec(output_shape_dyn, data).unwrap()
+                STensor::from_shape_vec(output_shape_dyn, data).unwrap()
             }
             &Operation::View { input } => {
                 let input = &map.get(&input).unwrap().tensor;
@@ -39,7 +40,7 @@ pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&Tensor]) -
                 let info = slice_info(input.ndim(), axis, start, end);
                 input.slice(info).to_shared()
             }
-            &Operation::Conv { input, filter, conv_shape } => {
+            &Operation::Conv { input, filter, details: conv_shape } => {
                 let input = map.get(&input).unwrap().tensor.view().into_dimensionality().unwrap();
                 let filter = map.get(&filter).unwrap().tensor.view().into_dimensionality().unwrap();
                 let result = convolution(conv_shape, input, filter);
@@ -81,17 +82,17 @@ pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&Tensor]) -
     }
 }
 
-fn convolution(shape: ConvShape, input: ArrayView4<f32>, filter: ArrayView4<f32>) -> Array4<f32> {
-    let kernel_offset = (shape.kernel_size / 2) as isize;
-    let input_range = 0..shape.input_size as isize;
+pub fn convolution(details: ConvDetails, input: ArrayView4<f32>, filter: ArrayView4<f32>) -> Array4<f32> {
+    let kernel_offset = (details.kernel_size / 2) as isize;
+    let input_range = 0..details.input_size as isize;
 
-    let output_shape = (input.dim().0, shape.output_channels, shape.output_size, shape.output_size);
+    let output_shape = (input.dim().0, details.output_channels, details.output_size, details.output_size);
     Array4::from_shape_fn(output_shape, |(n, co, ox, oy)| {
         let mut result: f32 = 0.0;
 
-        for ci in 0..shape.input_channels {
-            for kx in 0..shape.kernel_size as isize {
-                for ky in 0..shape.kernel_size as isize {
+        for ci in 0..details.input_channels {
+            for kx in 0..details.kernel_size as isize {
+                for ky in 0..details.kernel_size as isize {
                     let ix = ox as isize + kx - kernel_offset;
                     let iy = oy as isize + ky - kernel_offset;
 
@@ -134,12 +135,12 @@ pub struct ExecutionInfo {
 
 pub struct CalculatedValue {
     value: Value,
-    tensor: Tensor,
+    tensor: STensor,
     time_spent: f32,
 }
 
 impl ExecutionInfo {
-    pub fn outputs(self) -> Vec<Tensor> {
+    pub fn outputs(self) -> Vec<STensor> {
         self.outputs.iter()
             .map(|v| {
                 // convert to standard layout so users get easily get &[f32] slices

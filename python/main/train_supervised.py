@@ -7,35 +7,35 @@ from threading import Thread
 
 import torch
 import torch.nn.functional as nnf
-from torch.optim import SGD
+from torch.optim import SGD, AdamW
 
 from lib.data.buffer import FileList
 from lib.data.file import DataFile
 from lib.games import Game
 from lib.logger import Logger
 from lib.model.lc0_pre_act import LCZOldPreNetwork
+from lib.model.simple import DenseNetwork
 from lib.plotter import LogPlotter, qt_app
 from lib.save_onnx import save_onnx
-from lib.schedule import LinearSchedule
+from lib.schedule import LinearSchedule, FixedSchedule
 from lib.train import TrainSettings
 from lib.util import DEVICE, print_param_count
 
 
 def thread_main(logger: Logger, plotter: LogPlotter):
-    train_pattern = f"../../data/pgn-games/ccrl/train/*.json"
-    test_pattern = f"../../data/pgn-games/ccrl/test/*.json"
-    output_folder = "../../data/supervised/repro_momentum/"
+    train_pattern = f"../../data/all-ttt/*.json"
+    test_pattern = train_pattern
+    output_folder = "../../data/supervised/all-ttt/"
 
     shutil.rmtree(output_folder, ignore_errors=True)
-    # assert not os.path.exists(output_folder)
     os.makedirs(output_folder, exist_ok=True)
 
-    game = Game.find("chess")
+    game = Game.find("ttt")
 
     batch_size = 1024
 
-    test_steps = 16
-    save_steps = 1028
+    test_steps = 1
+    save_steps = 128
 
     settings = TrainSettings(
         game=game,
@@ -46,17 +46,18 @@ def thread_main(logger: Logger, plotter: LogPlotter):
         clip_norm=100,
     )
 
-    network = LCZOldPreNetwork(game, 8, 256, 32, (8, 128))
+    # network = LCZOldPreNetwork(game, 8, 128, 32, (8, 128))
+    network = DenseNetwork(game, 8, 64, True)
     network.to(DEVICE)
 
     print_param_count(network)
 
     optimizer = SGD(network.parameters(), weight_decay=1e-5, lr=0.0)
-    # schedule = FixedSchedule(40, [0.01, 0.001, 0.0001, 0.00001], [4000, 8000, 12000])
-    schedule = LinearSchedule(1.0, 0.001, 1000)
+    schedule = FixedSchedule(40, [0.1, 0.01, 0.001, 0.0001], [1000, 1400, 2000])
+    # schedule = None
 
     # optimizer = AdamW(network.parameters(), weight_decay=1e-5)
-    # scheduler = None
+    # schedule = None
 
     pool = ThreadPool(4)
 

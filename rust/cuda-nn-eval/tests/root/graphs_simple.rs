@@ -7,7 +7,7 @@ use crate::root::tensor_utils::{linspace_tensor, manual_tensor, range_vec};
 
 #[test]
 fn empty() {
-    test_all(&Graph::new(), 8, &[], &[])
+    test_all(&Graph::new(), 8, &[], Some(&[]))
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn copy() {
         &graph,
         batch_size,
         &[fixed_tensor.to_shared(), batch_tensor.to_shared()],
-        &[fixed_tensor, batch_tensor],
+        Some(&[fixed_tensor, batch_tensor]),
     )
 }
 
@@ -48,11 +48,11 @@ fn slice() {
         &graph,
         0,
         &[input_tensor.to_shared().into_dyn()],
-        &[
+        Some(&[
             input_tensor.slice(s![.., 0]).into_dyn().to_shared(),
             input_tensor.slice(s![0..2, ..]).into_dyn().to_shared(),
             input_tensor.slice(s![0..2, 0]).into_dyn().to_shared(),
-        ],
+        ]),
     )
 }
 
@@ -73,10 +73,10 @@ fn linear() {
         &graph,
         0,
         &[manual_tensor((1, 4), vec![0.0, 1.0, 2.0, 3.0])],
-        &[
+        Some(&[
             manual_tensor((1, 2), vec![14.0, 38.0]),
             manual_tensor((1, 2), vec![4.0, 48.0]),
-        ],
+        ]),
     )
 }
 
@@ -97,6 +97,6 @@ fn fuse_clamp() {
         &graph,
         5,
         &[manual_tensor(5, vec![-2.0, 0.0, 0.5, 1.0, 2.0])],
-        &[manual_tensor(5, vec![0.0, 0.0, 0.5, 1.0, 1.0])],
+        Some(&[manual_tensor(5, vec![0.0, 0.0, 0.5, 1.0, 1.0])]),
     )
 }

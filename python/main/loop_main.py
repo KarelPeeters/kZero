@@ -1,3 +1,5 @@
+import shutil
+
 from torch.optim import AdamW
 
 from lib.games import Game
@@ -5,13 +7,12 @@ from lib.loop import FixedSelfplaySettings, LoopSettings
 from lib.model.lc0_pre_act import LCZOldPreNetwork
 from lib.model.simple import DenseNetwork
 from lib.selfplay_client import SelfplaySettings
-# TODO fix startup behaviour, only release games in the order they were started to ensure a constant
-#  distribution of game lengths
 from lib.train import TrainSettings
 
 
 def main():
-    game = Game.find("ttt")
+    game = Game.find("chess")
+    print(f"Using game {game.name}")
 
     fixed_settings = FixedSelfplaySettings(
         game=game,
@@ -20,6 +21,9 @@ def main():
         games_per_gen=100,
     )
 
+    dirichlet_alpha = 10 / game.average_available_moves
+    print(f"Using dirichlet alpha {dirichlet_alpha}")
+
     selfplay_settings = SelfplaySettings(
         temperature=1.0,
         # TODO alphazero uses value 30 (plies, 15 moves)
@@ -27,12 +31,12 @@ def main():
         # TODO give this information to zero tree search too! now it might be stalling without a good reason
         max_game_length=300,
         keep_tree=False,
-        dirichlet_alpha=0.2,
+        dirichlet_alpha=dirichlet_alpha,
         dirichlet_eps=0.25,
         full_search_prob=1.0,
         # TODO increase this again?
-        full_iterations=400,
-        part_iterations=400,
+        full_iterations=600,
+        part_iterations=600,
         exploration_weight=2.0,
         random_symmetries=True,
         cache_size=0,
@@ -41,18 +45,17 @@ def main():
     train_settings = TrainSettings(
         game=game,
         value_weight=0.1,
-        wdl_weight=0.2,
+        wdl_weight=0.1,
         policy_weight=1.0,
         batch_size=256,
         clip_norm=20.0,
     )
 
     def initial_network():
-        return DenseNetwork(game, 8, 128, True)
+        return LCZOldPreNetwork(game, 4, 32, 32, True, 8, 128)
 
-    # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
-        root_path=f"data/newer_loop/test/{game.name}/",
+        root_path=f"data/new_loop_real/first/{game.name}/",
         initial_network=initial_network,
 
         target_buffer_size=100_000,
@@ -65,7 +68,9 @@ def main():
         train_settings=train_settings,
     )
 
-    print_expected_buffer_behaviour(settings, game.estimate_moves_per_game)
+    shutil.rmtree(settings.root_path)
+
+    print_expected_buffer_behaviour(settings, game.average_game_length)
 
     settings.run_loop()
 

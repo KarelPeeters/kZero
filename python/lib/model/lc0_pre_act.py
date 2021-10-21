@@ -3,7 +3,6 @@
 # https://github.com/LeelaChessZero/lczero-training/blob/3a6ed5e8cb140817cb0bd285f0f28b96988ef9e1/tf/tfprocess.py#L1185
 # version at the time of the common dataset:
 # https://github.com/LeelaChessZero/lczero-training/blob/77fbfba230e3f309d474fe60dd9d469a76fc28f2/tf/tfprocess.py#L397-L530
-from typing import Tuple
 
 import torch
 from torch import nn
@@ -12,7 +11,12 @@ from lib.games import Game
 
 
 class LCZOldPreNetwork(nn.Module):
-    def __init__(self, game: Game, depth: int, channels: int, policy_channels: int, value_channels: Tuple[int, int]):
+    def __init__(
+            self, game: Game,
+            depth: int, channels: int,
+            policy_hidden_channels: int, policy_conv: bool,
+            value_channels: int, value_hidden: int
+    ):
         super().__init__()
         self.policy_channels = game.policy_channels
         self.b = game.board_size
@@ -24,18 +28,24 @@ class LCZOldPreNetwork(nn.Module):
             nn.ReLU6()
         )
 
-        self.policy_head = nn.Sequential(
-            conv_block(1, channels, policy_channels),
-            nn.Flatten(),
-            nn.Linear(policy_channels * self.b * self.b, game.policy_channels * self.b * self.b),
-        )
+        if policy_conv:
+            self.policy_head = nn.Sequential(
+                conv_block(1, channels, policy_hidden_channels),
+                nn.Conv2d(policy_hidden_channels, game.policy_channels, kernel_size=(1, 1))
+            )
+        else:
+            self.policy_head = nn.Sequential(
+                conv_block(1, channels, policy_hidden_channels),
+                nn.Flatten(),
+                nn.Linear(policy_hidden_channels * self.b * self.b, game.policy_channels * self.b * self.b),
+            )
 
         self.value_head = nn.Sequential(
-            conv_block(1, channels, value_channels[0]),
+            conv_block(1, channels, value_channels),
             nn.Flatten(),
-            nn.Linear(value_channels[0] * self.b * self.b, value_channels[1]),
+            nn.Linear(value_channels * self.b * self.b, value_hidden),
             nn.ReLU6(),
-            nn.Linear(value_channels[1], 4),
+            nn.Linear(value_hidden, 4),
         )
 
     def forward(self, input):
@@ -71,7 +81,7 @@ def conv_block(kernel_size: int, in_channels: int, out_channels: int) -> nn.Modu
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, kernel_size), padding=(padding, padding)),
         batch_norm(out_channels, scale=False),
-        nn.ReLU6(),
+        nn.ReLU(),
     )
 
 

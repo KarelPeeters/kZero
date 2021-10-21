@@ -1,9 +1,9 @@
 use itertools::Itertools;
 
-use nn_graph::cpu::Tensor;
+use nn_graph::cpu::STensor;
 use nn_graph::ndarray::{ArcArray, Dimension, IntoDimension};
 
-pub fn manual_tensor<I: IntoDimension>(shape: I, data: Vec<f32>) -> Tensor {
+pub fn manual_tensor<I: IntoDimension>(shape: I, data: Vec<f32>) -> STensor {
     ArcArray::from_shape_vec(shape, data)
         .expect("Shape and data length mismatch")
         .into_dyn()

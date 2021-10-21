@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use board_game::board::Board;
 
-use nn_graph::cpu::{cpu_execute_graph, Tensor};
+use nn_graph::cpu::{cpu_execute_graph, STensor};
 use nn_graph::graph::Graph;
 use nn_graph::ndarray::IxDyn;
 
@@ -39,7 +39,7 @@ impl<B: Board, M: BoardMapper<B>> Network<B> for CPUNetwork<B, M> {
         for board in boards {
             self.mapper.encode_full(&mut input, board.borrow())
         }
-        let input = Tensor::from_shape_vec(IxDyn(&M::INPUT_FULL_SHAPE), input).unwrap();
+        let input = STensor::from_shape_vec(IxDyn(&M::INPUT_FULL_SHAPE), input).unwrap();
 
         // evaluate the graph
         let outputs = cpu_execute_graph(&self.graph, batch_size, &[&input]).outputs();
