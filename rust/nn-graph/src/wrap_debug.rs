@@ -36,3 +36,18 @@ impl<T> DerefMut for WrapDebug<T> {
         &mut self.0
     }
 }
+
+pub struct DebugSliceShort<'a, T: Debug> {
+    pub slice: &'a [T],
+    pub max_len: usize,
+}
+
+impl<T: Debug> Debug for DebugSliceShort<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.slice.len() > self.max_len {
+            write!(f, "{:?} ..", &self.slice[0..self.max_len])
+        } else {
+            write!(f, "{:?}", self.slice)
+        }
+    }
+}

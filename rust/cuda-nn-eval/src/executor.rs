@@ -13,8 +13,8 @@ pub struct CudnnExecutor {
     handle: CudnnHandle,
     plan: Vec<Step>,
 
-    stage: Vec<f32>,
-    outputs: Vec<Vec<f32>>,
+    stage: Vec<u8>,
+    outputs: Vec<Vec<u8>>,
 
     profile: bool,
 }
@@ -25,7 +25,8 @@ impl CudnnExecutor {
         let mut planner = Planner::new(handle);
 
         for value in graph.values() {
-            let ValueInfo { shape, operation } = &graph[value];
+            //TODO handle/check types here
+            let ValueInfo { shape, ty: _, operation } = &graph[value];
             planner.visit(value, shape.eval(batch_size), operation);
         }
 
@@ -48,7 +49,7 @@ impl CudnnExecutor {
         CudnnExecutor { handle, plan, stage, outputs, profile: false }
     }
 
-    pub fn evaluate(&mut self, inputs: &[&[f32]]) -> &[Vec<f32>] {
+    pub fn evaluate(&mut self, inputs: &[&[u8]]) -> &[Vec<u8>] {
         let mut timers = vec![];
 
         unsafe {
@@ -56,6 +57,7 @@ impl CudnnExecutor {
                 let start = CudaEvent::new();
                 let end = CudaEvent::new();
 
+                //TODO properly handle input types here
                 self.handle.stream().record_event(&start);
                 step.run(&mut self.handle, inputs, &mut self.stage, &mut self.outputs);
                 self.handle.stream().record_event(&end);
@@ -98,7 +100,7 @@ impl CudnnExecutor {
 }
 
 impl Step {
-    unsafe fn run(&self, handle: &mut CudnnHandle, inputs: &[&[f32]], stage: &mut [f32], outputs: &mut [Vec<f32>]) {
+    unsafe fn run(&self, handle: &mut CudnnHandle, inputs: &[&[u8]], stage: &mut [u8], outputs: &mut [Vec<u8>]) {
         match self {
             Step::CopyInput { index, mem } => {
                 mem.copy_from_host(cast_slice(inputs[*index]))

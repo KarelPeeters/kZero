@@ -1,14 +1,22 @@
 use std::fmt::{Debug, Formatter};
 use std::time::Instant;
 
+use bytemuck::cast_slice;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use ndarray::{ArcArray, Array4, ArrayView4, IxDyn, SliceInfo, SliceInfoElem};
+use unwrap_match::unwrap_match;
 
-use crate::graph::{ConvShape, Graph, Operation, Value, ValueInfo};
+use crate::graph::{BinaryOp, ConstantData, ConvShape, Graph, Operation, Value, ValueInfo};
 
-/// We're using an ArcArray so reshaping is free.
-pub type Tensor = ArcArray<f32, IxDyn>;
+pub type TensorF = ArcArray<f32, IxDyn>;
+pub type TensorI = ArcArray<i32, IxDyn>;
+
+#[derive(Debug, Clone)]
+pub enum Tensor {
+    F32(TensorF),
+    I32(TensorI),
+}
 
 pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&Tensor]) -> ExecutionInfo {
     assert_eq!(graph.inputs().len(), inputs.len(), "Wrong input count");
@@ -16,50 +24,63 @@ pub fn cpu_execute_graph(graph: &Graph, batch_size: usize, inputs: &[&Tensor]) -
     let mut map: IndexMap<Value, CalculatedValue> = IndexMap::default();
 
     for output in graph.values() {
-        let ValueInfo { shape, operation } = &graph[output];
+        //TODO handle/check types here
+        let ValueInfo { shape, ty: _, operation } = &graph[output];
         let output_shape = shape.eval(batch_size);
         let output_shape_dyn = IxDyn(&output_shape.dims);
 
         let start_time = Instant::now();
 
         let result: Tensor = match operation {
-            &Operation::Input { index } => {
-                inputs[index].to_shared()
+            //TODO handle/check types here
+            &Operation::Input { ty: _, index } => {
+                inputs[index].clone()
             }
             Operation::Constant { data } => {
-                let data = (&**data).clone();
-                Tensor::from_shape_vec(output_shape_dyn, data).unwrap()
+                Tensor::from_data(output_shape_dyn, data.clone())
             }
             &Operation::View { input } => {
                 let input = &map.get(&input).unwrap().tensor;
-                input.reshape(output_shape_dyn)
+                match input {
+                    Tensor::F32(input) => Tensor::F32(input.reshape(output_shape_dyn)),
+                    Tensor::I32(input) => Tensor::I32(input.reshape(output_shape_dyn)),
+                }
             }
             &Operation::Slice { input, axis, start, end, } => {
                 let input = &map.get(&input).unwrap().tensor;
-                let info = slice_info(input.ndim(), axis, start, end);
-                input.slice(info).to_shared()
-            }
-            &Operation::Conv { input, filter, conv_shape } => {
-                let input = map.get(&input).unwrap().tensor.view().into_dimensionality().unwrap();
-                let filter = map.get(&filter).unwrap().tensor.view().into_dimensionality().unwrap();
-                let result = convolution(conv_shape, input, filter);
-                result.into_dyn().into_shared()
-            }
-            &Operation::Add { left, right, subtract } => {
-                let left = &map.get(&left).unwrap().tensor;
-                let right = &map.get(&right).unwrap().tensor;
+                let info = slice_info(input.rank(), axis, start, end);
 
-                let result = if subtract { left - right } else { left + right };
-                result.into_shared()
+                match input {
+                    Tensor::F32(input) => Tensor::F32(input.slice(info).to_shared()),
+                    Tensor::I32(input) => Tensor::I32(input.slice(info).to_shared()),
+                }
             }
-            &Operation::Mul { left, right } => {
-                let left = &map.get(&left).unwrap().tensor;
-                let right = &map.get(&right).unwrap().tensor;
-                (left * right).into_shared()
+            &Operation::Gather { .. } => todo!(),
+            &Operation::Conv { input, filter, conv_shape } => {
+                let input = map.get(&input).unwrap().tensor.unwrap_f32()
+                    .view().into_dimensionality().unwrap();
+                let filter = map.get(&filter).unwrap().tensor.unwrap_f32()
+                    .view().into_dimensionality().unwrap();
+
+                let result = convolution(conv_shape, input, filter);
+                Tensor::F32(result.into_dyn().into_shared())
+            }
+            &Operation::Binary { left, right, op } => {
+                let left = map.get(&left).unwrap().tensor.unwrap_f32();
+                let right = map.get(&right).unwrap().tensor.unwrap_f32();
+
+                let result = match op {
+                    BinaryOp::Add => left + right,
+                    BinaryOp::Sub => left - right,
+                    BinaryOp::Mul => left * right,
+                };
+
+                Tensor::F32(result.into_shared())
             }
             &Operation::Clamp { input, min, max } => {
-                let input = &map.get(&input).unwrap().tensor;
-                input.map(|&x| x.clamp(min, max)).into_shared()
+                let input = map.get(&input).unwrap().tensor.unwrap_f32();
+                let result = input.map(|&x| x.clamp(min, max));
+                Tensor::F32(result.into_shared())
             }
         };
 
@@ -145,8 +166,11 @@ impl ExecutionInfo {
         self.outputs.iter()
             .map(|v| {
                 // convert to standard layout so users get easily get &[f32] slices
-                self.values.get(v).unwrap().tensor
-                    .as_standard_layout().to_shared()
+                let output = &self.values.get(v).unwrap().tensor;
+                match output {
+                    Tensor::F32(output) => Tensor::F32(output.as_standard_layout().to_shared()),
+                    Tensor::I32(output) => Tensor::I32(output.as_standard_layout().to_shared()),
+                }
             })
             .collect_vec()
     }
@@ -156,8 +180,48 @@ impl Debug for CalculatedValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CalculatedTensor")
             .field("value", &self.value)
-            .field("shape", &self.tensor.dim())
+            .field("shape", &self.tensor.shape())
             .field("time_spent", &self.time_spent)
             .finish()
+    }
+}
+
+impl Tensor {
+    pub fn from_data(shape: IxDyn, data: ConstantData) -> Self {
+        match data {
+            ConstantData::F32(vec) =>
+                Tensor::F32(ArcArray::from_shape_vec(shape, vec).unwrap()),
+            ConstantData::I32(vec) =>
+                Tensor::I32(ArcArray::from_shape_vec(shape, vec).unwrap()),
+        }
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        match self {
+            Tensor::F32(inner) => inner.shape(),
+            Tensor::I32(inner) => inner.shape(),
+        }
+    }
+
+    pub fn rank(&self) -> usize {
+        self.shape().len()
+    }
+
+    pub fn unwrap_f32(&self) -> &ArcArray<f32, IxDyn> {
+        unwrap_match!(self, Tensor::F32(tensor) => tensor)
+    }
+
+    pub fn to_f32(&self) -> ArcArray<f32, IxDyn> {
+        match self {
+            Tensor::F32(tensor) => tensor.to_shared(),
+            Tensor::I32(tensor) => tensor.mapv(|x| x as f32).to_shared(),
+        }
+    }
+
+    pub fn as_byte_slice(&self) -> Option<&[u8]> {
+        match self {
+            Tensor::F32(tensor) => tensor.as_slice().map(cast_slice),
+            Tensor::I32(tensor) => tensor.as_slice().map(cast_slice),
+        }
     }
 }

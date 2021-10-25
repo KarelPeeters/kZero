@@ -10,6 +10,7 @@ prost-build = "0.8.0"
 prost = "0.8.0"
 
 byteorder = "1.4.3"
+bytemuck = "1.7.2"
 itertools = "0.10.1"
 unwrap-match = "0.1.0"
 num-traits = "0.2.14"

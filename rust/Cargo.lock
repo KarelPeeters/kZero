@@ -905,6 +905,7 @@ dependencies = [
 name = "nn-graph"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "byteorder",
  "image",
  "indexmap",

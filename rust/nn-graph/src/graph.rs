@@ -2,11 +2,12 @@ use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Index;
 
+use bytemuck::cast_slice;
 use itertools::{Itertools, zip_eq};
 use unwrap_match::unwrap_match;
 
 use crate::shape::{Shape, Size};
-use crate::wrap_debug::WrapDebug;
+use crate::wrap_debug::DebugSliceShort;
 
 #[derive(Clone)]
 pub struct Graph {
@@ -21,7 +22,14 @@ pub struct Value(usize);
 #[derive(Debug, Clone)]
 pub struct ValueInfo {
     pub shape: Shape,
+    pub ty: Type,
     pub operation: Operation,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum Type {
+    F32,
+    I32,
 }
 
 /// The core set of operations.
@@ -32,25 +40,41 @@ pub struct ValueInfo {
 #[derive(Debug, Clone)]
 pub enum Operation {
     /// A runtime-variable input.
-    Input { index: usize },
-    /// A constant build into the network.
-    Constant { data: WrapDebug<Vec<f32>> },
+    Input { ty: Type, index: usize },
+    /// A constant value build-into the network.
+    Constant { data: ConstantData },
 
     /// View a value as a different shape.
     View { input: Value },
     /// Slice the last three axis of a value, each with range `start[i]..end[i]`
     Slice { input: Value, axis: usize, start: usize, end: usize },
 
+    /// Gather: use `index` with shape `(N)` and values to index into `values` with shape `(B, S)`
+    /// to yield a result of shape `(B, N)`. All values in indices must be in the range `0 .. S`.
+    Gather { input: Value, indices: Value },
+
     /// The standard convolution operator.
     Conv { input: Value, filter: Value, conv_shape: ConvShape },
 
-    /// Elementwise add two values, with broadcasting on the right.
-    Add { left: Value, right: Value, subtract: bool },
-    /// Elementwise multiply two values, with broadcasting on the right value.
-    Mul { left: Value, right: Value },
+    /// Elementwise operation between two same-rank and same-type values.
+    /// The right value is potentially broadcasted to the shape of the left value.
+    Binary { left: Value, right: Value, op: BinaryOp },
 
     /// Elementwise clip a value.
     Clamp { input: Value, min: f32, max: f32 },
+}
+
+#[derive(Clone, PartialEq)]
+pub enum ConstantData {
+    F32(Vec<f32>),
+    I32(Vec<i32>),
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
 }
 
 impl Operation {
@@ -59,30 +83,30 @@ impl Operation {
             Operation::Input { .. } => vec![],
             Operation::Constant { .. } => vec![],
             &Operation::View { input } => vec![input],
-            &Operation::Slice { input, .. } => vec![input],
-            &Operation::Conv { input, filter, .. } => vec![input, filter],
-            &Operation::Add { left, right, .. } => vec![left, right],
-            &Operation::Mul { left, right } => vec![left, right],
-            &Operation::Clamp { input, .. } => vec![input],
+            &Operation::Slice { input, axis: _, start: _, end: _ } => vec![input],
+            &Operation::Gather { input, indices } => vec![input, indices],
+            &Operation::Conv { input, filter, conv_shape: _ } => vec![input, filter],
+            &Operation::Binary { left, right, op: _ } => vec![left, right],
+            &Operation::Clamp { input, min: _, max: _ } => vec![input],
         }
     }
 
     pub(crate) fn clone_map_inputs(&self, mut f: impl FnMut(Value) -> Value) -> Operation {
         match self {
-            &Operation::Input { index } =>
-                Operation::Input { index },
+            &Operation::Input { ty, index } =>
+                Operation::Input { ty, index },
             Operation::Constant { data } =>
                 Operation::Constant { data: data.clone() },
             &Operation::View { input } =>
                 Operation::View { input: f(input) },
             &Operation::Slice { input, axis, start, end } =>
                 Operation::Slice { input: f(input), axis, start, end },
+            &Operation::Gather { input, indices } =>
+                Operation::Gather { input: f(input), indices: f(indices) },
             &Operation::Conv { input, filter, conv_shape } =>
                 Operation::Conv { input: f(input), filter: f(filter), conv_shape },
-            &Operation::Add { left, right, subtract } =>
-                Operation::Add { left: f(left), right: f(right), subtract },
-            &Operation::Mul { left, right } =>
-                Operation::Mul { left: f(left), right: f(right) },
+            &Operation::Binary { left, right, op } =>
+                Operation::Binary { left: f(left), right: f(right), op },
             &Operation::Clamp { input, min, max } =>
                 Operation::Clamp { input: f(input), min, max },
         }
@@ -148,50 +172,53 @@ impl Graph {
         &self.outputs
     }
 
-    pub fn unwrap_const(&self, value: Value) -> &[f32] {
+    pub fn unwrap_const(&self, value: Value) -> &ConstantData {
         unwrap_match!(&self[value].operation, Operation::Constant { data } => data)
     }
 
     #[must_use]
-    pub(crate) fn push(&mut self, shape: Shape, operation: Operation) -> Value {
+    pub(crate) fn push(&mut self, shape: Shape, ty: Type, operation: Operation) -> Value {
         let index = self.values.len();
-        self.values.push(ValueInfo { shape, operation });
+        self.values.push(ValueInfo { shape, ty, operation });
         Value(index)
     }
 
     /// Declare a new input value.
     #[must_use]
-    pub fn input(&mut self, shape: Shape) -> Value {
+    pub fn input(&mut self, shape: Shape, ty: Type) -> Value {
         let index = self.inputs.len();
-        let value = self.push(shape, Operation::Input { index });
+        let value = self.push(shape, ty, Operation::Input { ty, index });
         self.inputs.push(value);
         value
     }
 
     /// Declare a new constant.
     #[must_use]
-    pub fn constant(&mut self, shape: Shape, data: Vec<f32>) -> Value {
-        let expected_len = shape.unwrap_fixed("Constant shape must be fixed").size();
-        assert_eq!(expected_len, data.len() as usize, "Shape {:?} and data size {} mismatch", shape, data.len());
+    pub fn constant(&mut self, shape: Shape, data: ConstantData) -> Value {
+        let expected_len = shape.size().unwrap_fixed("Constant size");
+        assert_eq!(expected_len, data.size() as usize, "Shape {:?} and data size {} mismatch", shape, data.size());
 
-        self.push(shape, Operation::Constant { data: data.into() })
+        self.push(shape, data.ty(), Operation::Constant { data: data.into() })
     }
 
     /// View an existing value as a new shape.
     #[must_use]
     pub fn view(&mut self, input: Value, new_shape: Shape) -> Value {
-        let old_shape = &self[input].shape;
-        if &new_shape == old_shape {
+        let input_info = &self[input];
+        let input_shape = &input_info.shape;
+        let ty = input_info.ty;
+
+        if &new_shape == input_shape {
             return input;
         }
 
         assert_eq!(
-            old_shape.size(), new_shape.size(),
+            input_info.shape.size(), new_shape.size(),
             "New shape {:?} must have the same size as old shape {:?}",
-            new_shape, old_shape,
+            new_shape, input_info.shape,
         );
 
-        self.push(new_shape, Operation::View { input })
+        self.push(new_shape, ty, Operation::View { input })
     }
 
     /// View a value with a flattened shape.
@@ -220,7 +247,9 @@ impl Graph {
     /// View part of an existing value.
     #[must_use]
     pub fn slice(&mut self, input: Value, axis: usize, start: usize, end: usize) -> Value {
-        let old_shape = &self[input].shape;
+        let input_info = &self[input];
+        let old_shape = &input_info.shape;
+        let ty = input_info.ty;
 
         assert!(
             axis < old_shape.rank(),
@@ -241,7 +270,7 @@ impl Graph {
         );
 
         *dim = end - start;
-        self.push(new_shape, Operation::Slice { input, axis, start, end })
+        self.push(new_shape, ty, Operation::Slice { input, axis, start, end })
     }
 
     /// Index along a given axis.
@@ -259,6 +288,9 @@ impl Graph {
     /// Apply 2D convolution.
     #[must_use]
     pub fn conv(&mut self, input: Value, filter: Value, padding: usize) -> Value {
+        let ty = self[input].ty;
+        assert_eq!(ty, self[filter].ty, "Input and filter must have the same type");
+
         let [n, in_c, in_w, in_h]: [Size; 4] = self[input].shape.dims.as_slice().try_into()
             .expect("Convolution input must have rank 4");
         let [out_c, in_c_check, k_w, k_h]: [Size; 4] = self[filter].shape.dims.as_slice().try_into()
@@ -295,10 +327,8 @@ impl Graph {
             padding,
             output_size: out_w,
         };
-        self.push(
-            output_shape,
-            Operation::Conv { input, conv_shape, filter },
-        )
+        let operation = Operation::Conv { input, conv_shape, filter };
+        self.push(output_shape, ty, operation)
     }
 
     /// Apply a linear transformation.
@@ -327,11 +357,14 @@ impl Graph {
     /// Elementwise clamp.
     #[must_use]
     pub fn clamp(&mut self, input: Value, min: f32, max: f32) -> Value {
+        let input_ty = self[input].ty;
+        assert_eq!(input_ty, Type::F32, "Clamping only supported for f32 type for now");
+
         if min == f32::NEG_INFINITY && max == f32::INFINITY {
             return input;
         }
 
-        self.push(self[input].shape.clone(), Operation::Clamp { input, min, max })
+        self.push(self[input].shape.clone(), input_ty, Operation::Clamp { input, min, max })
     }
 
     /// Elementwise relu.
@@ -344,24 +377,35 @@ impl Graph {
     /// They must have the same rank, and the right shape is broadcasted to the left shape.
     #[must_use]
     pub fn add(&mut self, left: Value, right: Value) -> Value {
-        let output_shape = self.check_broadcast(left, right);
-        self.push(output_shape, Operation::Add { left, right, subtract: false })
+        self.binary_op(left, right, BinaryOp::Add)
     }
 
     /// Subtract two values elementwise.
     /// They must have the same rank, and the right shape is broadcasted to the left shape.
     #[must_use]
     pub fn sub(&mut self, left: Value, right: Value) -> Value {
-        let output_shape = self.check_broadcast(left, right);
-        self.push(output_shape, Operation::Add { left, right, subtract: true })
+        self.binary_op(left, right, BinaryOp::Sub)
     }
 
     /// Multiple two values elementwise.
     /// They must have the same rank, and the right shape is broadcasted to the left shape.
     #[must_use]
     pub fn mul(&mut self, left: Value, right: Value) -> Value {
+        self.binary_op(left, right, BinaryOp::Mul)
+    }
+
+    /// Apply an elementwise binary operation between two values.
+    /// They must have the same rank, and the right shape is broadcasted to the left shape.
+    #[must_use]
+    pub fn binary_op(&mut self, left: Value, right: Value, op: BinaryOp) -> Value {
+        let left_ty = self[left].ty;
+        let right_ty = self[right].ty;
+
+        assert_eq!(left_ty, right_ty, "Binary operation left and right types must match");
+        assert_eq!(left_ty, Type::F32, "Binary operations only supported for f32 for now");
+
         let output_shape = self.check_broadcast(left, right);
-        self.push(output_shape, Operation::Mul { left, right })
+        self.push(output_shape, left_ty, Operation::Binary { left, right, op })
     }
 
     /// Register an existing value as an output
@@ -374,6 +418,57 @@ impl Graph {
     pub fn output_all(&mut self, values: &[Value]) {
         for &value in values {
             self.output(value)
+        }
+    }
+}
+
+impl Type {
+    pub fn size_bytes(&self) -> usize {
+        match self {
+            Type::F32 => 4,
+            Type::I32 => 4,
+        }
+    }
+}
+
+impl ConstantData {
+    pub fn from_bytes(ty: Type, data: &[u8]) -> Self {
+        match ty {
+            Type::F32 => ConstantData::F32(cast_slice(data).to_vec()),
+            Type::I32 => ConstantData::I32(cast_slice(data).to_vec()),
+        }
+    }
+
+    pub fn ty(&self) -> Type {
+        match self {
+            ConstantData::F32(_) => Type::F32,
+            ConstantData::I32(_) => Type::I32,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            ConstantData::F32(data) => data.len(),
+            ConstantData::I32(data) => data.len(),
+        }
+    }
+
+    pub fn unwrap_f32(&self) -> &[f32] {
+        unwrap_match!(self, ConstantData::F32(data) => data.as_slice())
+    }
+
+    pub fn unwrap_i32(&self) -> &[i32] {
+        unwrap_match!(self, ConstantData::I32(data) => data.as_slice())
+    }
+}
+
+impl Debug for ConstantData {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            ConstantData::F32(data) =>
+                write!(f, "ConstantData::F32({:?})", DebugSliceShort { slice: data.as_slice(), max_len: 16 }),
+            ConstantData::I32(data) =>
+                write!(f, "ConstantData::I32({:?})", DebugSliceShort { slice: data.as_slice(), max_len: 16 }),
         }
     }
 }

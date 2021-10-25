@@ -12,6 +12,7 @@ __global__ void gatherKernel(
     output[i] = input[indices[i]];
 }
 
+//TODO add batch support to this kernel
 extern "C" {
 cudaError gatherFloat(
         cudaStream_t stream,

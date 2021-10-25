@@ -5,7 +5,7 @@ use image::{ImageBuffer, Rgb};
 use itertools::{Itertools, zip};
 use ndarray::{ArcArray, Axis, Ix4};
 
-use crate::cpu::{ExecutionInfo, Tensor};
+use crate::cpu::{ExecutionInfo, TensorF};
 use crate::graph::{Graph, Operation, Value};
 use crate::shape::Size;
 
@@ -18,7 +18,7 @@ const HORIZONTAL_PADDING: usize = 5;
 pub fn visualize_graph_activations(
     graph: &Graph,
     execution: &ExecutionInfo,
-    post_process_value: impl Fn(Value, Tensor) -> Option<Tensor>,
+    post_process_value: impl Fn(Value, TensorF) -> Option<TensorF>,
 ) -> Vec<Image> {
     let batch_size = execution.batch_size;
 
@@ -44,7 +44,7 @@ pub fn visualize_graph_activations(
             continue;
         }
 
-        let data = value.tensor.to_shared();
+        let data = value.tensor.to_f32();
 
         selected.push((Some(value.value), data.to_shared()));
         if let Some(extra) = post_process_value(value.value, data) {
@@ -158,8 +158,8 @@ fn should_show_value(graph: &Graph, value: Value) -> bool {
                     zip(&graph[input].shape.dims, &graph[other].shape.dims)
                         .all(|(l, r)| l == r)
                 }
-                Operation::Slice { .. } | Operation::Conv { .. } => false,
-                &Operation::Add { left, right, subtract: _ } | &Operation::Mul { left, right } => {
+                Operation::Slice { .. } | Operation::Gather { .. } | Operation::Conv { .. } => false,
+                &Operation::Binary { left, right, op: _ } => {
                     graph[left].shape != graph[right].shape
                 }
                 Operation::Clamp { .. } => true,

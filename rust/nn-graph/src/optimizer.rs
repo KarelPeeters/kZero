@@ -9,8 +9,9 @@ pub fn optimize_graph(graph: &Graph) -> Graph {
 
     // ensure all inputs are copied over in the same order
     for &old_input in graph.inputs() {
-        let shape = graph[old_input].shape.clone();
-        let new_input = optimizer.new_graph.input(shape);
+        let old_input_shape = &graph[old_input];
+        let shape = old_input_shape.shape.clone();
+        let new_input = optimizer.new_graph.input(shape, old_input_shape.ty);
         optimizer.define(old_input, new_input);
     }
 
@@ -65,7 +66,7 @@ impl<'a> Optimizer<'a> {
         let shape = self.old_graph[old_value].shape.clone();
         let old_operation = &self.old_graph[old_value].operation;
         let new_operation = old_operation.clone_map_inputs(|old_input| self.map(old_input));
-        self.new_graph.push(shape, new_operation)
+        self.new_graph.push(shape, self.old_graph[old_value].ty, new_operation)
     }
 
     fn try_fuse(&mut self, old_start: Value) -> Option<Value> {
