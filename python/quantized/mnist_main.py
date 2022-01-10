@@ -12,7 +12,7 @@ from lib.plotter import DummyLogPlotter
 from quantized.binary import BLinear, BSign
 from quantized.quant_bits import QLinear
 
-DEVICE = "cpu"
+DEVICE = "cuda"
 
 
 def build_network(i_s: int, i_c: int, o_c: int, clamp_sign_grad: bool, clamp_weight_grad: bool):
@@ -107,7 +107,7 @@ def main():
     test_data = dataset_to_tensors(MNIST("../ignored/data", train=False, download=True))
 
     batch_size = 256
-    max_batch_count = 100
+    max_batch_count = 400
 
     for clamp_sign_grad in [False, True]:
         for clamp_weight_grad in [False, True]:
