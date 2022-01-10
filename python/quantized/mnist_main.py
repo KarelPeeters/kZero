@@ -6,32 +6,47 @@ from torch import nn
 from torch.nn import functional as nnf, Flatten
 from torch.optim import AdamW
 from torchvision.datasets import MNIST, CIFAR10
+from torchvision.utils import save_image
 
 from lib.logger import Logger
 from lib.plotter import run_with_plotter
-from quantized.binary import BLinear, BSign, BConv2d
+from lib.residual import ResModule
+from quantized.binary import BLinear, BSign, BConv2d, BFromUnitFloat
 from quantized.quant_bits import QLinear
 
 DEVICE = "cuda"
 
 
-def build_network(i_s: int, i_c: int, o_c: int, clamp_sign_grad: bool, clamp_weight_grad: bool):
+def build_network(i_s: int, i_c: int, o_c: int, bits: int, clamp_sign_grad: bool, clamp_weight_grad: bool):
     return nn.Sequential(
+        BFromUnitFloat(bits),
+
+        BConv2d(i_c * bits, 64, 3, clamp_weight_grad),
         BSign(clamp_sign_grad),
 
-        BConv2d(i_c, 8, 3, clamp_weight_grad),
+        ResModule(
+            BConv2d(64, 64, 3, clamp_weight_grad),
+            BSign(clamp_sign_grad),
+            nn.Dropout(0.5),
+        ),
+
+        ResModule(
+            BConv2d(64, 64, 3, clamp_weight_grad),
+            BSign(clamp_sign_grad),
+            nn.Dropout(0.5),
+        ),
+
+        BConv2d(64, 8, 3, clamp_weight_grad),
         BSign(clamp_sign_grad),
 
-        BConv2d(8, 8, 3, clamp_weight_grad),
-        BSign(clamp_sign_grad),
         Flatten(),
-
         BLinear(i_s * i_s * 8, o_c, clamp_weight_grad),
+        nn.Linear(o_c, o_c),
     )
 
 
 def eval(network, x, y_target):
-    y = network(x) / 4
+    y = network(x)
     loss = nnf.cross_entropy(y, y_target)
     acc = (torch.argmax(y, dim=1) == y_target).sum() / len(y_target)
     return loss, acc, y
@@ -63,7 +78,7 @@ def log_param_scale(logger: Logger, name: str, param):
     logger.log("scale", f"{name} max", param.max())
 
 
-def train(network, opt, batch_size, max_batch_count, train_data, test_data, plotter):
+def train(network, opt, schedule, batch_size, max_batch_count, train_data, test_data, plotter):
     logger = Logger()
 
     for bi in itertools.count():
@@ -72,6 +87,12 @@ def train(network, opt, batch_size, max_batch_count, train_data, test_data, plot
 
         plotter.block_while_paused()
         logger.start_batch()
+
+        if schedule is not None:
+            lr = schedule(bi)
+            logger.log("schedule", "lr", lr)
+            for group in opt.param_groups:
+                group["lr"] = lr
 
         network.eval()
         test_x, test_y_target = sample(train_data, batch_size)
@@ -112,9 +133,18 @@ def train(network, opt, batch_size, max_batch_count, train_data, test_data, plot
     return logger
 
 
+def save_examples(x, bits: int):
+    max_int = 2 ** bits - 1
+    q = (x * max_int).clamp(0, max_int).int().float() / max_int
+    save_image(q, "../ignored/binary_bit_inputs.png")
+
+
 def main(plotter):
     train_data = dataset_to_tensors(CIFAR10("../ignored/data", train=True, download=True))
     test_data = dataset_to_tensors(CIFAR10("../ignored/data", train=False, download=True))
+
+    bits = 8
+    save_examples(train_data[0][:100], bits)
 
     (_, c_i, _, s_i) = train_data[0].shape
     o_c = train_data[1].max() + 1
@@ -123,13 +153,16 @@ def main(plotter):
     batch_size = 256
     max_batch_count = None
 
-    network = build_network(s_i, c_i, o_c, False, False)
+    network = build_network(s_i, c_i, o_c, bits, False, False)
     network.to(DEVICE)
 
-    # opt = SGD(network.parameters(), lr=1e-5, momentum=0.9, weight_decay=1e-3)
-    opt = AdamW(network.parameters(), weight_decay=1e-3)
+    # opt = SGD(network.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-3)
+    # schedule = WarmupSchedule(100, FixedSchedule([0.1, 0.01, 0.001], [500, 500]))
 
-    train(network, opt, batch_size, max_batch_count, train_data, test_data, plotter)
+    opt = AdamW(network.parameters(), weight_decay=1e-3)
+    schedule = None
+
+    train(network, opt, schedule, batch_size, max_batch_count, train_data, test_data, plotter)
 
 
 if __name__ == '__main__':
