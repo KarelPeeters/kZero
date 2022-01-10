@@ -24,7 +24,7 @@ fn main() {
     let graph = optimize_graph(&load_graph_from_onnx_path(path), Default::default());
 
     let settings = ZeroSettings::new(100, 2.0, false, FpuMode::Parent);
-    let visits = 10_000;
+    let visits = 100_000;
 
     let mapper = ChessStdMapper;
     let mut network = CudnnNetwork::new(mapper, graph, settings.batch_size, Device::new(0));
@@ -33,6 +33,10 @@ fn main() {
     let puzzle_read = BufReader::new(File::open(puzzle_path).unwrap());
 
     for_each_lichess_puzzle(puzzle_read, |puzzle| {
+        if puzzle.puzzle_id != "003eP" {
+            return;
+        }
+
         println!("Trying puzzle {:?}", puzzle);
 
         let mut moves = puzzle.moves.split(" ");
@@ -107,7 +111,7 @@ fn main() {
 
                 if !zero_is_correct {
                     println!();
-                    println!("{}", tree.display(2, true, usize::MAX));
+                    println!("{}", tree.display(1, true, usize::MAX));
                 }
             }
 

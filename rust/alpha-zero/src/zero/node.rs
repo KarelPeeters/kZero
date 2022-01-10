@@ -179,7 +179,7 @@ impl std::ops::Div<f32> for ZeroValues {
 
 impl Display for ZeroValues {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:.3}, {:.3}/{:.3}/{:.3}", self.value, self.wdl.win, self.wdl.draw, self.wdl.loss)
+        write!(f, "{:.3}, {:.3} <- {:.3}/{:.3}/{:.3}", self.value, self.wdl.value(), self.wdl.win, self.wdl.draw, self.wdl.loss)
     }
 }
 

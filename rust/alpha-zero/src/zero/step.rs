@@ -27,6 +27,7 @@ pub struct ZeroResponse<'a, B> {
 pub enum FpuMode {
     Fixed(ZeroValues),
     Parent,
+    Gumbel,
 }
 
 /// The first half of a step, walks down the tree until either:
@@ -44,6 +45,10 @@ pub fn zero_step_gather<B: Board>(
     use_value: bool,
     fpu_mode: FpuMode,
 ) -> Option<ZeroRequest<B>> {
+    // println!("starting gather: ");
+    // println!("{}", tree.display(1, false, 200));
+    // println!("==================");
+
     let mut curr_node = 0;
     let mut curr_board = tree.root_board().clone();
 
@@ -85,13 +90,22 @@ pub fn zero_step_gather<B: Board>(
         fpu = fpu.flip();
 
         // continue selecting, pick the best child
-        let parent_total_visits = tree[curr_node].total_visits();
+        let selected = match fpu_mode.select(fpu) {
+            Some(fpu) => {
+                let parent_total_visits = tree[curr_node].total_visits();
+                let selected = children.iter().max_by_key(|&child| {
+                    let x = tree[child].uct(parent_total_visits, fpu, use_value)
+                        .total(exploration_weight);
+                    N32::from_inner(x)
+                }).expect("Board is not done, this node should have a child");
 
-        let selected = children.iter().max_by_key(|&child| {
-            let x = tree[child].uct(parent_total_visits, fpu_mode.select(fpu), use_value)
-                .total(exploration_weight);
-            N32::from_inner(x)
-        }).expect("Board is not done, this node should have a child");
+                selected
+            }
+            None => {
+                // println!("gumbel");
+                tree.gumbel_info(curr_node).unwrap().det_sampled_child
+            }
+        };
 
         curr_node = selected;
         curr_board.play(tree[curr_node].last_move.unwrap());
@@ -140,10 +154,11 @@ fn tree_propagate_values<B: Board>(tree: &mut Tree<B>, node: usize, mut values: 
 }
 
 impl FpuMode {
-    pub fn select(&self, parent_flipped: ZeroValues) -> ZeroValues {
+    pub fn select(&self, parent_flipped: ZeroValues) -> Option<ZeroValues> {
         match self {
-            FpuMode::Fixed(values) => *values,
-            FpuMode::Parent => parent_flipped,
+            FpuMode::Fixed(values) => Some(*values),
+            FpuMode::Parent => Some(parent_flipped),
+            FpuMode::Gumbel => None,
         }
     }
 }
