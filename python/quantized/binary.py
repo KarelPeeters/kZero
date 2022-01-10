@@ -38,9 +38,27 @@ class BSign(nn.Module):
 class BLinear(nn.Module):
     def __init__(self, size_in: int, size_out: int, clamp_grad: bool):
         super().__init__()
-
-        self.weight = nn.Parameter(torch.normal(0.0, 0.01, (size_out, size_in)))
         self.clamp_grad = clamp_grad
 
+        self.div = size_in ** .5
+        self.weight = nn.Parameter(torch.normal(0.0, 0.01, (size_out, size_in)))
+
     def forward(self, x):
-        return nnf.linear(x, BitSignFunction.apply(self.weight, self.clamp_grad))
+        weight_bin = BitSignFunction.apply(self.weight, self.clamp_grad)
+        return nnf.linear(x, weight_bin) / self.div
+
+
+class BConv2d(nn.Module):
+    def __init__(self, channels_in: int, channels_out: int, filter_size: int, clamp_grad: bool):
+        super().__init__()
+        self.clamp_grad = clamp_grad
+
+        assert filter_size % 2 == 1, f"Filter size must be odd, got {filter_size}"
+        self.padding = filter_size // 2
+
+        self.div = (channels_in * filter_size * filter_size) ** .5
+        self.weight = nn.Parameter(torch.normal(0.0, 0.01, (channels_out, channels_in, filter_size, filter_size)))
+
+    def forward(self, x):
+        weight_bin = BitSignFunction.apply(self.weight, self.clamp_grad)
+        return nnf.conv2d(x, weight_bin, padding=self.padding) / self.div
