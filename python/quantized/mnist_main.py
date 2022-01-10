@@ -1,26 +1,28 @@
 import itertools
 from typing import Optional
 
+import numpy as np
 import torch
-import torchvision
 from torch import nn
 from torch.nn import functional as nnf
-from torch.optim import SGD
-from torchvision.transforms import ToTensor
+from torch.optim import AdamW
+from torchvision.datasets import MNIST, CIFAR10
 
 from lib.logger import Logger
 from lib.plotter import run_with_plotter, LogPlotter
-from quantized.quant_bits import QuantModule, QLinear
+from quantized.binary import BLinear, BSign
+from quantized.quant_bits import QLinear
 
 DEVICE = "cpu"
 
 
-def build_network(bits, scale):
+def build_network(i_s: int, i_c: int, o_c: int):
     return nn.Sequential(
         nn.Flatten(),
-        QLinear(nn.Linear(28 * 28, 256), QuantModule(bits, scale), QuantModule(bits, scale)),
-        nn.ReLU(),
-        QLinear(nn.Linear(256, 10), QuantModule(bits, scale), QuantModule(bits, scale)),
+        BSign(),
+        BLinear(i_c * i_s * i_s, 256),
+        BSign(),
+        BLinear(256, o_c)
     )
 
 
@@ -31,38 +33,57 @@ def eval(network, x, y_target):
     return loss, acc
 
 
-def sample(dataset, count: int):
-    i = torch.randint(len(dataset), (count,))
-    return dataset.data[i].float().to(DEVICE) / 255, dataset.targets[i].to(DEVICE)
+def dataset_to_tensors(dataset):
+    if isinstance(dataset, MNIST):
+        x = dataset.data.unsqueeze(1).float() / 255
+        y = dataset.targets
+    elif isinstance(dataset, CIFAR10):
+        x = torch.tensor(np.moveaxis(dataset.data, 3, 1), dtype=torch.float) / 255
+        y = torch.tensor(dataset.targets, dtype=torch.int64)
+    else:
+        assert False, f"Unknown dataset type '{dataset}'"
+
+    return x.to(DEVICE), y.to(DEVICE)
+
+
+def sample(data, batch_size):
+    x, y = data
+    assert len(x) == len(y)
+    i = torch.randint(len(x), (batch_size,))
+    return x[i], y[i]
+
+
+def log_param_scale(logger: Logger, name: str, param):
+    logger.log("scale", f"{name} min", param.min())
+    logger.log("scale", f"{name} mean", param.mean())
+    logger.log("scale", f"{name} max", param.max())
 
 
 def main(plotter: Optional[LogPlotter]):
-    train_data = torchvision.datasets.MNIST("../ignored/data", train=True, download=True, transform=ToTensor())
-    test_data = torchvision.datasets.MNIST("../ignored/data", train=False, download=True, transform=ToTensor())
+    train_data = dataset_to_tensors(MNIST("../ignored/data", train=True, download=True))
+    test_data = dataset_to_tensors(MNIST("../ignored/data", train=False, download=True))
 
-    bits = torch.tensor(16)
-    network = build_network(bits, 0.1)
+    network = build_network(28, 1, 10)
     network.to(DEVICE)
 
-    opt = SGD(network.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-2)
+    # opt = SGD(network.parameters(), lr=0.001, momentum=0.09, weight_decay=1e-2)
+    opt = AdamW(network.parameters(), weight_decay=1e-1)
     batch_size = 256
 
     logger = Logger()
 
-    for bi in itertools.count():
-        plotter.block_while_paused()
+    for _ in itertools.count():
+        if plotter:
+            plotter.block_while_paused()
 
-        if bi % 800 == 0:
-            bits.fill_(max(1, bits.item() / 2))
-            print(f"bits: {bits.item()}")
-            logger.log("settings", "bits", bits.item())
+        logger.start_batch()
 
         network.eval()
-        test_x, test_y_target = sample(test_data, batch_size)
+        test_x, test_y_target = sample(train_data, batch_size)
         test_loss, test_acc = eval(network, test_x, test_y_target)
 
         network.train()
-        train_x, train_y_target = sample(train_data, batch_size)
+        train_x, train_y_target = sample(test_data, batch_size)
         train_loss, train_acc = eval(network, train_x, train_y_target)
 
         opt.zero_grad(set_to_none=True)
@@ -75,15 +96,16 @@ def main(plotter: Optional[LogPlotter]):
         logger.log("loss", "train", train_loss.item())
 
         for (mi, module) in enumerate(network.modules()):
+            if isinstance(module, BLinear):
+                log_param_scale(logger, f"{mi} w", module.weight)
             if isinstance(module, QLinear):
-                logger.log("scale", f"{mi} w min", module.linear.weight.min())
-                logger.log("scale", f"{mi} w mean", module.linear.weight.mean())
-                logger.log("scale", f"{mi} w max", module.linear.weight.max())
-
+                log_param_scale(logger, f"{mi} w", module.linear.weight)
                 if module.linear.bias is not None:
-                    logger.log("scale", f"{mi} b", module.linear.bias.min())
-                    logger.log("scale", f"{mi} b", module.linear.bias.mean())
-                    logger.log("scale", f"{mi} b", module.linear.bias.min())
+                    log_param_scale(logger, f"{mi} b", module.linear.bias)
+            if isinstance(module, nn.Linear):
+                log_param_scale(logger, f"{mi} w", module.weight)
+                if module.bias is not None:
+                    log_param_scale(logger, f"{mi} b", module.bias)
 
         if plotter:
             plotter.update(logger)
