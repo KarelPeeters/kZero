@@ -11,13 +11,17 @@ from torchvision.utils import save_image
 from lib.logger import Logger
 from lib.plotter import run_with_plotter
 from lib.residual import ResModule
-from quantized.binary import BLinear, BSign, BConv2d, BFromUnitFloat
+from quantized.binary import BLinear, BConv2d, BSign, BFromUnitFloat
 from quantized.quant_bits import QLinear
 
 DEVICE = "cuda"
 
 
-def build_network(i_s: int, i_c: int, o_c: int, bits: int, clamp_sign_grad: bool, clamp_weight_grad: bool):
+def build_network(
+        i_s: int, i_c: int, o_c: int, bits: int,
+        clamp_sign_grad: bool, clamp_weight_grad: bool,
+        dropout: float
+):
     return nn.Sequential(
         BFromUnitFloat(bits),
 
@@ -27,13 +31,13 @@ def build_network(i_s: int, i_c: int, o_c: int, bits: int, clamp_sign_grad: bool
         ResModule(
             BConv2d(64, 64, 3, clamp_weight_grad),
             BSign(clamp_sign_grad),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout),
         ),
 
         ResModule(
             BConv2d(64, 64, 3, clamp_weight_grad),
             BSign(clamp_sign_grad),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout),
         ),
 
         BConv2d(64, 8, 3, clamp_weight_grad),
@@ -95,7 +99,7 @@ def train(network, opt, schedule, batch_size, max_batch_count, train_data, test_
                 group["lr"] = lr
 
         network.eval()
-        test_x, test_y_target = sample(train_data, batch_size)
+        test_x, test_y_target = sample(test_data, batch_size)
         test_loss, test_acc, test_y = eval(network, test_x, test_y_target)
 
         logger.log("act", "output min", test_y.min())
@@ -104,7 +108,7 @@ def train(network, opt, schedule, batch_size, max_batch_count, train_data, test_
         logger.log("act", "output std", test_y.std())
 
         network.train()
-        train_x, train_y_target = sample(test_data, batch_size)
+        train_x, train_y_target = sample(train_data, batch_size)
         train_loss, train_acc, _ = eval(network, train_x, train_y_target)
 
         opt.zero_grad(set_to_none=True)
@@ -153,7 +157,7 @@ def main(plotter):
     batch_size = 256
     max_batch_count = None
 
-    network = build_network(s_i, c_i, o_c, bits, False, False)
+    network = build_network(s_i, c_i, o_c, bits, False, False, 0.0)
     network.to(DEVICE)
 
     # opt = SGD(network.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-3)
@@ -167,3 +171,4 @@ def main(plotter):
 
 if __name__ == '__main__':
     run_with_plotter(main)
+    # main(DummyLogPlotter())
