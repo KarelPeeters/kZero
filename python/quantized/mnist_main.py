@@ -11,10 +11,38 @@ from torchvision.utils import save_image
 from lib.logger import Logger
 from lib.plotter import run_with_plotter
 from lib.residual import ResModule
-from quantized.binary import BLinear, BConv2d, BSign, BFromUnitFloat
-from quantized.quant_bits import QLinear
+from quantized.binary import BSign, BConv2d
 
 DEVICE = "cuda"
+
+
+def FConv2d(channels_in: int, channels_out: int, filter_size: int, groups: int = 1):
+    assert filter_size % 2 == 1
+    padding = filter_size // 2
+    return nn.Conv2d(channels_in, channels_out, (filter_size, filter_size), padding=(padding, padding), groups=groups)
+
+
+def block(c: int):
+    # return ResModule(
+    # nn.BatchNorm2d(channels),
+    # nn.ReLU(),
+    # FConv2d(channels, channels, 3),
+    # nn.BatchNorm2d(channels),
+    # nn.ReLU(),
+    # FConv2d(channels, channels, 3),
+    # nn.BatchNorm2d(channels),
+    # )
+
+    module = ResModule(
+        nn.BatchNorm2d(c),
+        BSign(False),
+        BConv2d(c, c, 3, False),
+        BSign(False),
+        BConv2d(c, c, 3, False),
+        nn.BatchNorm2d(c)
+    )
+    module.inner[-1].weight.data.fill_(0.0)
+    return module
 
 
 def build_network(
@@ -23,29 +51,23 @@ def build_network(
         dropout: float
 ):
     return nn.Sequential(
-        BFromUnitFloat(bits),
+        FConv2d(i_c, 128, 1),
+        # BFromUnitFloat(8),
+        # BConv2d(8*3, 128, 1, False),
 
-        BConv2d(i_c * bits, 64, 3, clamp_weight_grad),
-        BSign(clamp_sign_grad),
+        block(128),
+        block(128),
+        block(128),
+        block(128),
+        block(128),
+        block(128),
+        block(128),
+        block(128),
 
-        ResModule(
-            BConv2d(64, 64, 3, clamp_weight_grad),
-            BSign(clamp_sign_grad),
-            nn.Dropout(dropout),
-        ),
-
-        ResModule(
-            BConv2d(64, 64, 3, clamp_weight_grad),
-            BSign(clamp_sign_grad),
-            nn.Dropout(dropout),
-        ),
-
-        BConv2d(64, 8, 3, clamp_weight_grad),
-        BSign(clamp_sign_grad),
-
+        nn.BatchNorm2d(128),
+        nn.AdaptiveAvgPool2d(1),
         Flatten(),
-        BLinear(i_s * i_s * 8, o_c, clamp_weight_grad),
-        nn.Linear(o_c, o_c),
+        nn.Linear(128, o_c),
     )
 
 
@@ -74,12 +96,6 @@ def sample(data, batch_size):
     assert len(x) == len(y)
     i = torch.randint(len(x), (batch_size,))
     return x[i], y[i]
-
-
-def log_param_scale(logger: Logger, name: str, param):
-    logger.log("scale", f"{name} min", param.min())
-    logger.log("scale", f"{name} mean", param.mean())
-    logger.log("scale", f"{name} max", param.max())
 
 
 def train(network, opt, schedule, batch_size, max_batch_count, train_data, test_data, plotter):
@@ -120,17 +136,13 @@ def train(network, opt, schedule, batch_size, max_batch_count, train_data, test_
         logger.log("loss", "test", test_loss.item())
         logger.log("loss", "train", train_loss.item())
 
-        for (mi, module) in enumerate(network.modules()):
-            if isinstance(module, BLinear):
-                log_param_scale(logger, f"{mi} w", module.weight)
-            if isinstance(module, QLinear):
-                log_param_scale(logger, f"{mi} w", module.linear.weight)
-                if module.linear.bias is not None:
-                    log_param_scale(logger, f"{mi} b", module.linear.bias)
-            if isinstance(module, nn.Linear):
-                log_param_scale(logger, f"{mi} w", module.weight)
-                if module.bias is not None:
-                    log_param_scale(logger, f"{mi} b", module.bias)
+        for name, value in network.named_parameters(recurse=True):
+            if "factor" in name:
+                mag = value.abs()
+
+                logger.log("scale", f"{name} min", mag.min())
+                logger.log("scale", f"{name} mean", mag.mean())
+                logger.log("scale", f"{name} max", mag.max())
 
         plotter.update(logger)
 
@@ -154,17 +166,19 @@ def main(plotter):
     o_c = train_data[1].max() + 1
     print(f"Image shape {c_i}x{s_i}x{s_i}, {o_c} categories")
 
-    batch_size = 256
+    batch_size = 64
     max_batch_count = None
 
     network = build_network(s_i, c_i, o_c, bits, False, False, 0.0)
     network.to(DEVICE)
 
-    # opt = SGD(network.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-3)
-    # schedule = WarmupSchedule(100, FixedSchedule([0.1, 0.01, 0.001], [500, 500]))
+    # opt = SGD(network.parameters(), lr=0.0012, momentum=0.9, weight_decay=1e-3)
+    opt = AdamW(network.parameters(), lr=2e-5)
 
-    opt = AdamW(network.parameters(), weight_decay=1e-3)
     schedule = None
+    # schedule = WarmupSchedule(100, FixedSchedule([0.1, 0.01, 0.001], [500, 500]))
+    # schedule = FixedSchedule([0.002, 0.001, 0.0001], [1000, 200])
+    # schedule = ExpSchedule(1e-6, 1e-3, 1000)
 
     train(network, opt, schedule, batch_size, max_batch_count, train_data, test_data, plotter)
 

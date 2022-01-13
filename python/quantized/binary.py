@@ -35,6 +35,15 @@ class BSign(nn.Module):
         return BitSignFunction.apply(x, self.clamp_grad)
 
 
+class Scale(nn.Module):
+    def __init__(self, shape, initial: float):
+        super().__init__()
+        self.factor = nn.Parameter(torch.full((1, *shape), initial))
+
+    def forward(self, x):
+        return x * self.factor
+
+
 class BFromUnitFloat(nn.Module):
     """ Split the input (float range 0..1) into `bits` along the second axis. """
 
