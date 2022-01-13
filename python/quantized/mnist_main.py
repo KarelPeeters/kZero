@@ -1,5 +1,4 @@
 import itertools
-from typing import Optional
 
 import numpy as np
 import torch
@@ -9,20 +8,20 @@ from torch.optim import AdamW
 from torchvision.datasets import MNIST, CIFAR10
 
 from lib.logger import Logger
-from lib.plotter import run_with_plotter, LogPlotter
+from lib.plotter import DummyLogPlotter
 from quantized.binary import BLinear, BSign
 from quantized.quant_bits import QLinear
 
 DEVICE = "cpu"
 
 
-def build_network(i_s: int, i_c: int, o_c: int):
+def build_network(i_s: int, i_c: int, o_c: int, clamp_sign_grad: bool, clamp_weight_grad: bool):
     return nn.Sequential(
         nn.Flatten(),
-        BSign(),
-        BLinear(i_c * i_s * i_s, 256),
-        BSign(),
-        BLinear(256, o_c)
+        BSign(clamp_sign_grad),
+        BLinear(i_c * i_s * i_s, 256, clamp_weight_grad),
+        BSign(clamp_sign_grad),
+        BLinear(256, o_c, clamp_weight_grad),
     )
 
 
@@ -59,23 +58,14 @@ def log_param_scale(logger: Logger, name: str, param):
     logger.log("scale", f"{name} max", param.max())
 
 
-def main(plotter: Optional[LogPlotter]):
-    train_data = dataset_to_tensors(MNIST("../ignored/data", train=True, download=True))
-    test_data = dataset_to_tensors(MNIST("../ignored/data", train=False, download=True))
-
-    network = build_network(28, 1, 10)
-    network.to(DEVICE)
-
-    # opt = SGD(network.parameters(), lr=0.001, momentum=0.09, weight_decay=1e-2)
-    opt = AdamW(network.parameters(), weight_decay=1e-1)
-    batch_size = 256
-
+def train(network, opt, batch_size, max_batch_count, train_data, test_data, plotter):
     logger = Logger()
 
-    for _ in itertools.count():
-        if plotter:
-            plotter.block_while_paused()
+    for bi in itertools.count():
+        if bi >= max_batch_count:
+            break
 
+        plotter.block_while_paused()
         logger.start_batch()
 
         network.eval()
@@ -107,9 +97,36 @@ def main(plotter: Optional[LogPlotter]):
                 if module.bias is not None:
                     log_param_scale(logger, f"{mi} b", module.bias)
 
-        if plotter:
-            plotter.update(logger)
+        plotter.update(logger)
+
+    return logger
+
+
+def main():
+    train_data = dataset_to_tensors(MNIST("../ignored/data", train=True, download=True))
+    test_data = dataset_to_tensors(MNIST("../ignored/data", train=False, download=True))
+
+    batch_size = 256
+    max_batch_count = 100
+
+    for clamp_sign_grad in [False, True]:
+        for clamp_weight_grad in [False, True]:
+            print(clamp_sign_grad, clamp_weight_grad)
+            final_train_accs = []
+
+            for i in range(10):
+                network = build_network(28, 1, 10, clamp_sign_grad, clamp_weight_grad)
+                network.to(DEVICE)
+
+                # opt = SGD(network.parameters(), lr=0.001, momentum=0.09, weight_decay=1e-2)
+                opt = AdamW(network.parameters(), weight_decay=1e-1)
+
+                logger = train(network, opt, batch_size, max_batch_count, train_data, test_data, DummyLogPlotter())
+                final_train_accs.append(logger.finished_data().values[("acc", "train")][-10:].mean())
+
+            print(f"{np.mean(final_train_accs)} +- {np.std(final_train_accs)}")
 
 
 if __name__ == '__main__':
-    run_with_plotter(main)
+    # run_with_plotter(main)
+    main()
