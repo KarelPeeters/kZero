@@ -4,7 +4,7 @@ import re
 from typing import Optional
 
 import torch
-from torch.optim import SGD
+from torch.optim import AdamW
 
 from lib.data.buffer import FileListSampler
 from lib.data.file import DataFile
@@ -12,7 +12,6 @@ from lib.games import Game
 from lib.logger import Logger
 from lib.model.post_act import PostActNetwork, PostActScalarHead, PostActAttentionPolicyHead
 from lib.plotter import LogPlotter, run_with_plotter
-from lib.schedule import FixedSchedule, WarmupSchedule
 from lib.supervised import supervised_loop
 from lib.train import TrainSettings, ScalarTarget
 from lib.util import DEVICE, print_param_count
@@ -32,10 +31,10 @@ def find_last_finished_batch(path: str) -> Optional[int]:
 
 
 def main(plotter: LogPlotter):
-    output_folder = "../../data/supervised/moves_left/added"
+    output_folder = "../../data/supervised/chess-real/64-channels"
 
-    train_pattern = "../../data/loop/chess/simple_unbalanced/selfplay/*.json"
-    test_pattern = "../../data/loop/chess/simple_unbalanced/selfplay/*.json"
+    train_pattern = "../../data/loop/chess/real/selfplay/*.json"
+    test_pattern = "../../data/loop/chess/real/selfplay/*.json"
     limit_file_count = 100
 
     game = Game.find("chess")
@@ -60,14 +59,17 @@ def main(plotter: LogPlotter):
     )
 
     def initial_network():
-        old_network = torch.jit.load(
-            "C:/Documents/Programming/STTT/AlphaZero/data/loop/chess/simple_unbalanced/training/gen_462/network.pt")
-        channels = 32
+        channels = 64
         new_network = PostActNetwork(
             game, 8, channels,
-            PostActScalarHead(game, channels, 4, 32),
+            PostActScalarHead(game, channels, 4, 64),
             PostActAttentionPolicyHead(game, channels, channels),
         )
+
+        return new_network
+
+        old_network = torch.jit.load(
+            "C:/Documents/Programming/STTT/AlphaZero/data/loop/chess/simple_unbalanced/training/gen_462/network.pt")
 
         old_params = list(old_network.named_parameters())
         new_params = list(new_network.named_parameters())
@@ -83,12 +85,11 @@ def main(plotter: LogPlotter):
                 else:
                     print(f"Skipping shape mismatch {new_name}: new {new_param.shape} old {old_param.shape}")
 
-        return new_network
-
     train_files = sorted((DataFile.open(game, p) for p in glob.glob(train_pattern)), key=lambda f: f.info.timestamp)
     test_files = sorted((DataFile.open(game, p) for p in glob.glob(test_pattern)), key=lambda f: f.info.timestamp)
 
     if limit_file_count is not None:
+        print(f"Only using {limit_file_count} latest files")
         train_files = train_files[-min(limit_file_count, len(train_files)):]
         test_files = test_files[-min(limit_file_count, len(train_files)):]
 
@@ -119,8 +120,8 @@ def main(plotter: LogPlotter):
     network.to(DEVICE)
     print_param_count(network)
 
-    optimizer = SGD(network.parameters(), weight_decay=1e-5, lr=0.0, momentum=0.9)
-    schedule = WarmupSchedule(100, FixedSchedule([0.02, 0.01, 0.001], [900, 2_000]))
+    optimizer = AdamW(network.parameters(), weight_decay=1e-3)
+    schedule = None
 
     plotter.set_title(f"supervised {output_folder}")
     plotter.set_can_pause(True)
