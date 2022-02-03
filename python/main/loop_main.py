@@ -16,8 +16,8 @@ def main():
 
     fixed_settings = FixedSelfplaySettings(
         game=game,
-        threads_per_device=2,
-        batch_size=256,
+        threads_per_device=4,
+        batch_size=512,
         games_per_gen=200,
         reorder_games=False,
     )
