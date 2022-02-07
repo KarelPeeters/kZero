@@ -29,7 +29,8 @@ pub fn commander_main<B: Board>(
 
                 let check_data = std::fs::read(path_bin)
                     .expect("Failed to read check data");
-                check_cudnn(&graph, &check_data, false);
+                //check_cudnn(&graph, &check_data, false);
+                println!("Not checkihg network outputs");
             }
         }
 
