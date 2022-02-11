@@ -24,18 +24,18 @@ def main():
 
     selfplay_settings = SelfplaySettings(
         temperature=1.0,
-        zero_temp_move_count=1000,
+        zero_temp_move_count=30,
         use_value=False,
         max_game_length=400,
         keep_tree=False,
         dirichlet_alpha=0.2,
         dirichlet_eps=0.25,
         full_search_prob=1.0,
-        full_iterations=200,
+        full_iterations=600,
         part_iterations=20,
         weights=UctWeights.default(),
         random_symmetries=True,
-        cache_size=200,
+        cache_size=600,
     )
 
     train_settings = TrainSettings(
