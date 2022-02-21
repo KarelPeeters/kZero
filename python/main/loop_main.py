@@ -6,13 +6,13 @@ from torch.optim import AdamW
 from lib.data.file import DataFile
 from lib.games import Game
 from lib.loop import FixedSelfplaySettings, LoopSettings
-from lib.model.post_act import PostActNetwork, PostActScalarHead, PostActAttentionPolicyHead
+from lib.model.post_act import PostActNetwork, PostActScalarHead, PostActConvPolicyHead
 from lib.selfplay_client import SelfplaySettings, UctWeights
 from lib.train import TrainSettings, ScalarTarget
 
 
 def main():
-    game = Game.find("chess")
+    game = Game.find("ataxx")
 
     fixed_settings = FixedSelfplaySettings(
         game=game,
@@ -23,7 +23,7 @@ def main():
     )
 
     selfplay_settings = SelfplaySettings(
-        temperature=0.5,
+        temperature=1.0,
         zero_temp_move_count=30,
         use_value=False,
         max_game_length=400,
@@ -51,18 +51,19 @@ def main():
     )
 
     def dummy_network():
+        channels = 8
         return PostActNetwork(
-            game, 1, 8,
-            PostActScalarHead(game, 8, 2, 16),
-            PostActAttentionPolicyHead(game, 8, 4),
+            game, 1, channels,
+            PostActScalarHead(game, channels, 2, 16),
+            PostActConvPolicyHead(game, channels),
         )
 
     def initial_network():
-        channels = 128
+        channels = 64
         return PostActNetwork(
-            game, 16, channels,
+            game, 8, channels,
             PostActScalarHead(game, channels, 8, 128),
-            PostActAttentionPolicyHead(game, channels, channels),
+            PostActConvPolicyHead(game, channels),
         )
 
     initial_files_pattern = ""
@@ -70,7 +71,7 @@ def main():
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/16x128/",
+        root_path=f"data/loop/{game.name}/8x64/",
 
         dummy_network=dummy_network,
         initial_network=initial_network,
