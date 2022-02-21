@@ -17,7 +17,7 @@ def main():
     fixed_settings = FixedSelfplaySettings(
         game=game,
         threads_per_device=2,
-        batch_size=128,
+        batch_size=256,
         games_per_gen=200,
         reorder_games=False,
     )
@@ -51,17 +51,19 @@ def main():
     )
 
     def dummy_network():
-        channels = 8
+        dummy_channels = 8
         return PostActNetwork(
-            game, 1, channels,
-            PostActScalarHead(game, channels, 2, 16),
-            PostActConvPolicyHead(game, channels),
+            game, 1, dummy_channels,
+            PostActScalarHead(game, dummy_channels, 2, 16),
+            PostActConvPolicyHead(game, dummy_channels),
         )
 
+    channels = 128
+    depth = 16
+
     def initial_network():
-        channels = 64
         return PostActNetwork(
-            game, 8, channels,
+            game, depth, channels,
             PostActScalarHead(game, channels, 8, 128),
             PostActConvPolicyHead(game, channels),
         )
@@ -71,7 +73,7 @@ def main():
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/8x64/",
+        root_path=f"data/loop/{game.name}/{depth}x{channels}/",
 
         dummy_network=dummy_network,
         initial_network=initial_network,
@@ -80,7 +82,7 @@ def main():
         only_generate=False,
 
         min_buffer_size=500_000,
-        max_buffer_size=1_000_000,
+        max_buffer_size=2_000_000,
 
         train_batch_size=128,
         samples_per_position=0.3,

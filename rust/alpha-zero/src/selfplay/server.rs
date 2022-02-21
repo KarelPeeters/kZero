@@ -2,13 +2,16 @@ use std::fmt::{Display, Formatter};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use board_game::board::Board;
+use board_game::board::{Board, BoardSymmetry};
 use board_game::games::ataxx::AtaxxBoard;
 use board_game::games::chess::ChessBoard;
 use board_game::games::sttt::STTTBoard;
 use board_game::games::ttt::TTTBoard;
+use board_game::symmetry::SymmetryDistribution;
+use board_game::util::board_gen::random_board_with_moves;
 use crossbeam::channel;
 use itertools::Itertools;
+use rand::{Rng, thread_rng};
 
 use cuda_nn_eval::Device;
 
@@ -21,6 +24,7 @@ use crate::selfplay::collector::collector_main;
 use crate::selfplay::commander::{commander_main, read_command};
 use crate::selfplay::generator::generator_main;
 use crate::selfplay::protocol::{Command, StartupSettings};
+use crate::selfplay::server::Game::Ataxx;
 
 #[derive(Debug, Copy, Clone)]
 enum Game {
@@ -71,7 +75,12 @@ pub fn selfplay_server_main() {
             selfplay_start(
                 game,
                 startup_settings,
-                || AtaxxBoard::diagonal(size),
+                || {
+                    let mut rng = thread_rng();
+                    let n = rng.gen_range(0..4);
+                    random_board_with_moves(&AtaxxBoard::diagonal(size), n, &mut rng)
+                        .map(rng.sample(SymmetryDistribution))
+                },
                 AtaxxStdMapper::new(size),
                 reader, writer,
             )
