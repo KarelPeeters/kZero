@@ -230,7 +230,7 @@ class LoopSettings:
             buffer.append(None, file)
         print(f"Initial buffer: {len(buffer.files)} files, {buffer.game_count} games, {buffer.position_count}")
 
-        for gi in itertools.count(2997):
+        for gi in itertools.count():
             gen = Generation.from_gi(self, gi)
             prev = gen.prev
 
