@@ -52,7 +52,7 @@ def main():
     )
 
     def dummy_network():
-        return torch.jit.load("~/start_network.pb")
+        return torch.jit.load("~/start_network.pt")
 
     channels = 128
     depth = 8
