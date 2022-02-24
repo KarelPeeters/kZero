@@ -52,7 +52,7 @@ def main():
     )
 
     def dummy_network():
-        return torch.jit.load("~/start_network.pt")
+        return torch.jit.load("data/start_network.pt")
 
     channels = 128
     depth = 8
@@ -77,7 +77,7 @@ def main():
 
         only_generate=False,
 
-        min_buffer_size=500_000,
+        min_buffer_size=100_000,
         max_buffer_size=2_000_000,
 
         train_batch_size=128,
