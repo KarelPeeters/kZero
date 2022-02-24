@@ -89,7 +89,11 @@ pub fn selfplay_server_main() {
             selfplay_start(
                 game,
                 startup_settings,
-                ChessBoard::default,
+                || {
+                    let mut board = ChessBoard::default();
+                    board.play(board.parse_move("g4").unwrap());
+                    board
+                },
                 ChessStdMapper,
                 reader, writer,
             )
