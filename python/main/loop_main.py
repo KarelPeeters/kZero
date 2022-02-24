@@ -1,6 +1,7 @@
 import glob
 import sys
 
+import torch
 from torch.optim import AdamW
 
 from lib.data.file import DataFile
@@ -12,7 +13,7 @@ from lib.train import TrainSettings, ScalarTarget
 
 
 def main():
-    game = Game.find("ataxx")
+    game = Game.find("chess")
 
     fixed_settings = FixedSelfplaySettings(
         game=game,
@@ -51,15 +52,10 @@ def main():
     )
 
     def dummy_network():
-        dummy_channels = 8
-        return PostActNetwork(
-            game, 1, dummy_channels,
-            PostActScalarHead(game, dummy_channels, 2, 16),
-            PostActConvPolicyHead(game, dummy_channels),
-        )
+        return torch.jit.load("~/start_network.pb")
 
     channels = 128
-    depth = 16
+    depth = 8
 
     def initial_network():
         return PostActNetwork(
@@ -73,7 +69,7 @@ def main():
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/{depth}x{channels}/",
+        root_path=f"data/loop/{game.name}-g4/{depth}x{channels}/",
 
         dummy_network=dummy_network,
         initial_network=initial_network,
