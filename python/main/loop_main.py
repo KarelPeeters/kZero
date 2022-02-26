@@ -77,7 +77,7 @@ def main():
 
         only_generate=False,
 
-        min_buffer_size=100_000,
+        min_buffer_size=500_000,
         max_buffer_size=2_000_000,
 
         train_batch_size=128,
