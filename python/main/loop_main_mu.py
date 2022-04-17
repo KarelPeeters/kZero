@@ -1,6 +1,7 @@
 import glob
 import sys
 
+import torch
 from torch import nn
 from torch.optim import AdamW
 
@@ -39,7 +40,7 @@ def main():
         dirichlet_alpha=0.2,
         dirichlet_eps=0.25,
         full_search_prob=1.0,
-        full_iterations=200,
+        full_iterations=100,
         part_iterations=20,
         weights=UctWeights.default(),
         random_symmetries=False,
@@ -90,7 +91,7 @@ def main():
     #     return build_network(1, 64, 64)
 
     def initial_network():
-        return build_network(16, 128, 64)
+        return torch.jit.load("data/models_3500.pb")
 
     initial_files_pattern = ""
 
@@ -104,7 +105,7 @@ def main():
 
         only_generate=False,
 
-        min_buffer_size=1_500_000,
+        min_buffer_size=500_000,
         max_buffer_size=2_000_000,
 
         train_batch_size=128,
