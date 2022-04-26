@@ -194,6 +194,15 @@ async fn generate_simulation<B: Board, M: BoardMapper<B>>(
         let net_evaluation = root_net_eval.unwrap();
         let zero_evaluation = tree.eval();
 
+        let zero_sum = zero_evaluation.policy.iter().sum::<f32>();
+        if (1.0 - zero_sum).abs() > 0.0001 {
+            eprintln!("{}", tree.display(1, true, usize::MAX, false));
+            panic!(
+                "Got non-normalized sum {} for zero_eval {:?}",
+                zero_sum, zero_evaluation
+            )
+        }
+
         //pick a move to play
         let move_selector = MoveSelector::new(settings.temperature, settings.zero_temp_move_count);
         let picked_index = move_selector.select(positions.len() as u32, zero_evaluation.policy.as_ref(), rng);
