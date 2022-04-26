@@ -283,7 +283,17 @@ fn extract_zero_eval<B: Board, M: BoardMapper<B>>(
         .map(|mv| mapper.move_to_index(board, mv).map_or(0.0, |i| eval.policy_logits[i]))
         .collect();
 
+    let backup = policy.clone();
+
     softmax_in_place(&mut policy);
+
+    let sum = policy.iter().sum::<f32>();
+    if (1.0 - sum).abs() > 0.001 {
+        panic!(
+            "Got sum {} for selected policy logits {:?} for full logits {:?}",
+            sum, backup, eval.policy_logits
+        )
+    }
 
     ZeroEvaluation {
         values: eval.values,
