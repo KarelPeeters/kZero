@@ -225,7 +225,13 @@ impl<B: Board, M: BoardMapper<B>> BinaryOutput<B, M> {
         assert_normalized_or_nan(scalars.net_values.wdl.sum());
         assert_normalized_or_nan(scalars.final_values.wdl.sum());
         if policy_len != 0 {
-            assert_normalized(policy_values.iter().sum());
+            let policy_sum = policy_values.iter().sum::<f32>();
+            assert!(
+                (1.0 - policy_sum).abs() < 0.001,
+                "Expected normalized policy, got sum {} for {:?}",
+                policy_sum,
+                policy_values
+            );
         }
 
         // save current offset
@@ -310,10 +316,6 @@ fn collect_policy_indices<B: Board, M: BoardMapper<B>>(board: &B, mapper: M) -> 
 
 fn assert_normalized_or_nan(x: f32) {
     assert!(x.is_nan() || (1.0 - x).abs() < 0.001);
-}
-
-fn assert_normalized(x: f32) {
-    assert!((1.0 - x).abs() < 0.001);
 }
 
 impl Scalars {
