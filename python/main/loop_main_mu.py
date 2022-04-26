@@ -25,10 +25,10 @@ def main():
         muzero=True,
         games_per_gen=200,
 
-        cpu_threads_per_device=2,
+        cpu_threads_per_device=4,
         gpu_threads_per_device=1,
         gpu_batch_size=512,
-        gpu_batch_size_root=64,
+        gpu_batch_size_root=32,
 
         saved_state_channels=saved_state_channels,
     )
@@ -91,10 +91,10 @@ def main():
         )
 
     def dummy_network():
-        return build_network(2, 64)
+        return build_network(0, 64)
 
     def initial_network():
-        return build_network(16, 128)
+        return build_network(12, 128)
 
     initial_files_pattern = ""
 
