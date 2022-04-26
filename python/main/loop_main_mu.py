@@ -25,7 +25,7 @@ def main():
         muzero=True,
         games_per_gen=200,
 
-        cpu_threads_per_device=2,
+        cpu_threads_per_device=4,
         gpu_threads_per_device=1,
         gpu_batch_size=512,
         gpu_batch_size_root=64,
@@ -91,7 +91,7 @@ def main():
         )
 
     def dummy_network():
-        return build_network(1, 8)
+        return build_network(2, 64)
 
     def initial_network():
         return build_network(16, 128)
@@ -102,7 +102,7 @@ def main():
         gui=sys.platform == "win32",
         root_path=f"data/loop_mu/{game.name}/working/",
 
-        dummy_network=None,
+        dummy_network=dummy_network,
         initial_network=initial_network,
         initial_data_files=[DataFile.open(game, path) for path in glob.glob(initial_files_pattern)],
 
