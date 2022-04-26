@@ -25,7 +25,7 @@ def main():
         muzero=True,
         games_per_gen=200,
 
-        cpu_threads_per_device=4,
+        cpu_threads_per_device=2,
         gpu_threads_per_device=1,
         gpu_batch_size=512,
         gpu_batch_size_root=64,
