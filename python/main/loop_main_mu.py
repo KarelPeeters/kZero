@@ -7,26 +7,27 @@ from torch.optim import AdamW
 from lib.data.file import DataFile
 from lib.games import Game
 from lib.loop import FixedSelfplaySettings, LoopSettings
+from lib.model.layers import Flip
 from lib.model.post_act import ScalarHead, PredictionHeads, ResTower, ConcatInputsChannelwise, \
-    ResBlock, ConvPolicyHead
+    ResBlock, AttentionPolicyHead
 from lib.networks import MuZeroNetworks
 from lib.selfplay_client import SelfplaySettings, UctWeights
 from lib.train import TrainSettings, ScalarTarget
 
 
 def main():
-    game = Game.find("ttt")
+    game = Game.find("chess")
 
-    saved_state_channels = 32
+    saved_state_channels = 64
 
     fixed_settings = FixedSelfplaySettings(
         game=game,
         muzero=True,
-        games_per_gen=1000,
+        games_per_gen=200,
 
         cpu_threads_per_device=2,
         gpu_threads_per_device=1,
-        gpu_batch_size=256,
+        gpu_batch_size=512,
         gpu_batch_size_root=64,
 
         saved_state_channels=saved_state_channels,
@@ -71,13 +72,13 @@ def main():
         dynamics = ConcatInputsChannelwise(nn.Sequential(
             ResTower(depth, saved_state_channels + game.input_mv_channels, channels, final_affine=False),
             nn.Hardtanh(-1.0, 1.0),
-            # Flip(dim=2),
+            Flip(dim=2),
         ))
         prediction = PredictionHeads(
             common=ResBlock(channels),
             scalar_head=ScalarHead(game.board_size, channels, 8, 128),
-            # policy_head=AttentionPolicyHead(game, channels, channels)
-            policy_head=ConvPolicyHead(game, channels)
+            policy_head=AttentionPolicyHead(game, channels, channels)
+            # policy_head=ConvPolicyHead(game, channels)
         )
 
         return MuZeroNetworks(
@@ -89,17 +90,17 @@ def main():
             prediction=prediction,
         )
 
-    # def dummy_network():
-    #     return build_network(1, 64)
+    def dummy_network():
+        return build_network(1, 8)
 
     def initial_network():
-        return build_network(8, 32)
+        return build_network(16, 128)
 
     initial_files_pattern = ""
 
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop_mu/{game.name}/fixed-index/",
+        root_path=f"data/loop_mu/{game.name}/working/",
 
         dummy_network=None,
         initial_network=initial_network,
@@ -107,8 +108,8 @@ def main():
 
         only_generate=False,
 
-        min_buffer_size=100_000,
-        max_buffer_size=200_000,
+        min_buffer_size=200_000,
+        max_buffer_size=500_000,
 
         train_batch_size=128,
         samples_per_position=4,
