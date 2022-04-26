@@ -9,11 +9,10 @@ from lib.data.buffer import FileListSampler
 from lib.data.file import DataFile
 from lib.games import Game
 from lib.logger import Logger
-from lib.model.layers import Flip
-from lib.model.post_act import ResTower, ConcatInputsChannelwise, PredictionHeads, ScalarHead, AttentionPolicyHead, \
-    ResBlock
+from lib.model.post_act import ResTower, ConcatInputsChannelwise, PredictionHeads, ScalarHead, ResBlock, ConvPolicyHead
 from lib.networks import MuZeroNetworks
 from lib.plotter import run_with_plotter, LogPlotter
+from lib.schedule import LinearSchedule
 from lib.train import TrainSettings, ScalarTarget
 from lib.util import DEVICE
 
@@ -21,15 +20,15 @@ from lib.util import DEVICE
 def main(plotter: LogPlotter):
     print(f"Using device {DEVICE}")
 
-    game = Game.find("chess")
+    game = Game.find("ttt")
 
     paths = [
-        fr"C:\Documents\Programming\STTT\AlphaZero\data\selfuni\test_final.json"
+        fr"C:\Documents\Programming\STTT\AlphaZero\data\all\ttt.json"
     ]
     files = [DataFile.open(game, p) for p in paths]
 
     include_final = True
-    sampler = FileListSampler(game, files, batch_size=128, unroll_steps=5, include_final=include_final, threads=1)
+    sampler = FileListSampler(game, files, batch_size=128, unroll_steps=5, include_final=include_final, threads=2)
 
     train = TrainSettings(
         game=game,
@@ -44,26 +43,29 @@ def main(plotter: LogPlotter):
         mask_policy=False,
     )
 
-    output_path = "../../data/muzero/derp_final"
+    output_path = "../../data/muzero/all/unroll-again-nonorm"
     os.makedirs(output_path, exist_ok=False)
 
-    channels = 128
-    depth = 16
+    channels = 64
+    depth = 8
     saved_channels = 64
 
     representation = nn.Sequential(
         ResTower(depth, game.full_input_channels, channels, final_affine=False),
+        # nn.LayerNorm([channels, game.board_size, game.board_size], elementwise_affine=False),
         nn.Hardtanh(-1.0, 1.0),
     )
     dynamics = ConcatInputsChannelwise(nn.Sequential(
         ResTower(depth, saved_channels + game.input_mv_channels, channels, final_affine=False),
+        # nn.LayerNorm([channels, game.board_size, game.board_size], elementwise_affine=False),
         nn.Hardtanh(-1.0, 1.0),
-        Flip(dim=2),
+        # Flip(dim=2),
     ))
     prediction = PredictionHeads(
         common=ResBlock(channels),
         scalar_head=ScalarHead(game.board_size, channels, 8, 128),
-        policy_head=AttentionPolicyHead(game, channels, 64)
+        # policy_head=AttentionPolicyHead(game, channels, 64)
+        policy_head=ConvPolicyHead(game, channels),
     )
 
     networks = MuZeroNetworks(
@@ -77,6 +79,8 @@ def main(plotter: LogPlotter):
     networks.to(DEVICE)
 
     logger = Logger()
+
+    schedule = LinearSchedule(1e-6, 1e-2, 200)
     optimizer = AdamW(networks.parameters(), weight_decay=1e-5)
 
     plotter.set_can_pause(True)
@@ -91,6 +95,11 @@ def main(plotter: LogPlotter):
         plotter.block_while_paused()
         print(f"bi: {bi}")
         logger.start_batch()
+
+        # lr = schedule(bi)
+        # logger.log("opt", "lr", lr)
+        # for group in optimizer.param_groups:
+        #     group["lr"] = lr
 
         batch = sampler.next_unrolled_batch()
         train.train_step(batch, networks, optimizer, logger)
