@@ -16,7 +16,7 @@ from lib.train import TrainSettings, ScalarTarget
 
 
 def main():
-    game = Game.find("chess")
+    game = Game.find("chess-hist-8")
 
     saved_state_channels = 64
 
