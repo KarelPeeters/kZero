@@ -6,7 +6,8 @@ from torch.optim import AdamW
 from lib.data.file import DataFile
 from lib.games import Game
 from lib.loop import FixedSelfplaySettings, LoopSettings
-from lib.model.post_act import ScalarHead, AttentionPolicyHead, PredictionHeads, ResTower
+from lib.model.attention import AttentionTower
+from lib.model.post_act import ScalarHead, AttentionPolicyHead, PredictionHeads
 from lib.selfplay_client import SelfplaySettings, UctWeights
 from lib.train import TrainSettings, ScalarTarget
 
@@ -58,35 +59,35 @@ def main():
 
     def build_network(depth: int, channels: int):
         return PredictionHeads(
-            common=ResTower(depth, game.full_input_channels, channels),
+            common=AttentionTower(game.board_size, game.full_input_channels, depth, channels, 8, 16, 16, channels, 0.1),
             scalar_head=ScalarHead(game.board_size, channels, 8, 128),
             policy_head=AttentionPolicyHead(game, channels, channels),
         )
 
-    # def dummy_network():
-    #     return build_network(1, 8)
+    def dummy_network():
+        return build_network(1, 128)
 
     def initial_network():
-        return build_network(16, 128)
+        return build_network(8, 128)
 
     initial_files_pattern = ""
 
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/profile/",
+        root_path=f"data/loop/{game.name}/att-first-loop/",
 
-        dummy_network=None,
+        dummy_network=dummy_network,
         initial_network=initial_network,
         initial_data_files=[DataFile.open(game, path) for path in glob.glob(initial_files_pattern)],
 
         only_generate=False,
 
-        min_buffer_size=1_500_000,
+        min_buffer_size=500_000,
         max_buffer_size=2_000_000,
 
-        train_batch_size=128,
-        samples_per_position=0.3,
+        train_batch_size=256,
+        samples_per_position=0.5,
 
         optimizer=lambda params: AdamW(params, weight_decay=1e-3),
 

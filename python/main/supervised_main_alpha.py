@@ -30,7 +30,7 @@ def find_last_finished_batch(path: str) -> Optional[int]:
 
 
 def main(plotter: LogPlotter):
-    output_folder = "../../data/supervised/att-again-deeper"
+    output_folder = "../../data/supervised/att-no-bias-tiny"
 
     paths = [
         fr"C:\Documents\Programming\STTT\AlphaZero\data\loop\chess\16x128\selfplay\games_{i}.bin"
