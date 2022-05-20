@@ -7,13 +7,13 @@ from lib.data.file import DataFile
 from lib.games import Game
 from lib.loop import FixedSelfplaySettings, LoopSettings
 from lib.model.attention import AttentionTower
-from lib.model.post_act import ScalarHead, AttentionPolicyHead, PredictionHeads
+from lib.model.post_act import ScalarHead, PredictionHeads, ConvPolicyHead
 from lib.selfplay_client import SelfplaySettings, UctWeights
 from lib.train import TrainSettings, ScalarTarget
 
 
 def main():
-    game = Game.find("chess")
+    game = Game.find("ataxx")
 
     fixed_settings = FixedSelfplaySettings(
         game=game,
@@ -61,7 +61,7 @@ def main():
         return PredictionHeads(
             common=AttentionTower(game.board_size, game.full_input_channels, depth, channels, 8, 16, 16, channels, 0.1),
             scalar_head=ScalarHead(game.board_size, channels, 8, 128),
-            policy_head=AttentionPolicyHead(game, channels, channels),
+            policy_head=ConvPolicyHead(game, channels),
         )
 
     def dummy_network():
