@@ -20,7 +20,7 @@ def main():
         games_per_gen=200,
 
         cpu_threads_per_device=4,
-        gpu_threads_per_device=1,
+        gpu_threads_per_device=2,
         gpu_batch_size=1024,
         gpu_batch_size_root=0,
         search_batch_size=16,
@@ -64,8 +64,8 @@ def main():
             policy_head=AttentionPolicyHead(game, channels, channels),
         )
 
-    # def dummy_network():
-    #     return build_network(1, 8)
+    def dummy_network():
+        return build_network(1, 8)
 
     def initial_network():
         return build_network(16, 128)
@@ -75,10 +75,10 @@ def main():
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/profile-batch/",
-        port=63105,
+        root_path=f"data/loop/{game.name}/run-accel/",
+        port=65000,
 
-        dummy_network=None,
+        dummy_network=dummy_network,
         initial_network=initial_network,
         initial_data_files=[DataFile.open(game, path) for path in glob.glob(initial_files_pattern)],
 
