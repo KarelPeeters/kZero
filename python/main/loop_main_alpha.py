@@ -20,10 +20,10 @@ def main():
         games_per_gen=200,
 
         cpu_threads_per_device=4,
-        gpu_threads_per_device=1,
+        gpu_threads_per_device=2,
         gpu_batch_size=1024,
         gpu_batch_size_root=0,
-        search_batch_size=16,
+        search_batch_size=1,
 
         saved_state_channels=0,
     )
@@ -75,8 +75,8 @@ def main():
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/profile-batch/",
-        port=63105,
+        root_path=f"data/loop/{game.name}/baseline/",
+        port=65000,
 
         dummy_network=None,
         initial_network=initial_network,
