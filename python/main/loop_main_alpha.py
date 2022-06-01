@@ -64,8 +64,8 @@ def main():
             policy_head=AttentionPolicyHead(game, channels, channels),
         )
 
-    # def dummy_network():
-    #     return build_network(1, 8)
+    def dummy_network():
+        return build_network(1, 8)
 
     def initial_network():
         return build_network(16, 128)
@@ -78,14 +78,14 @@ def main():
         root_path=f"data/loop/{game.name}/baseline/",
         port=65000,
 
-        dummy_network=None,
+        dummy_network=dummy_network,
         initial_network=initial_network,
         initial_data_files=[DataFile.open(game, path) for path in glob.glob(initial_files_pattern)],
 
         only_generate=False,
 
-        min_buffer_size=1_500_000,
-        max_buffer_size=2_000_000,
+        min_buffer_size=500_000,
+        max_buffer_size=1_000_000,
 
         train_batch_size=128,
         samples_per_position=0.3,
