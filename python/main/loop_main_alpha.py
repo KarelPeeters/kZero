@@ -84,8 +84,8 @@ def main():
 
         only_generate=False,
 
-        min_buffer_size=1_500_000,
-        max_buffer_size=2_000_000,
+        min_buffer_size=500_000,
+        max_buffer_size=1_000_000,
 
         train_batch_size=128,
         samples_per_position=0.3,
