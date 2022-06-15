@@ -100,28 +100,21 @@ class EncoderLayer(nn.Module):
         (n, b, c) = input.shape
         assert c == self.d_model
 
-        # input projection
-        qkv = self.project_qkv(input.view(n * b, self.d_model)).view(n, b * heads, self.d_kqv)
+        # attention operation
+        qkv = self.project_qkv(input.view(n * b, self.d_model)).view(n, b, heads, self.d_kqv)
 
-        # split
-        q = qkv[:, :, :self.d_k]
-        k = qkv[:, :, self.d_k:2 * self.d_k]
-        v = qkv[:, :, 2 * self.d_k:]
+        q = qkv[:, :, :, :self.d_k]
+        k = qkv[:, :, :, self.d_k:2 * self.d_k]
+        v = qkv[:, :, :, 2 * self.d_k:]
 
-        # main attention calculation
-        # weights: (b*h, n_q, n_k)
-        # att_raw: (n_q, b*h, d_v)
+        att_split, weights = multi_head_attention(k, q, v)
 
-        logits = torch.bmm(q.transpose(0, 1), k.transpose(0, 1).transpose(1, 2))
-        weights = nnf.softmax(logits, -1)
-
-        # this contiguous() is not actually necessary if we could set the output strides
-        att_raw = torch.bmm(weights, v.transpose(0, 1)).transpose(0, 1).contiguous()
-
-        att_viewed = att_raw.view(n * b, heads * self.d_v)
+        # output projection, residual, norm
+        att_viewed = att_split.view(n * b, heads * self.d_v)
         att_projected = self.project_out(att_viewed).view(n, b, self.d_model)
         att_result = self.norm_att(input * self.alpha + self.dropout(att_projected))
 
+        # linear, residual, norm
         ff_inner = self.ff(att_result.view(n * b, self.d_model)).view(n, b, self.d_model)
         ff_result = self.norm_ff(att_result * self.alpha + self.dropout(ff_inner))
 
@@ -130,6 +123,44 @@ class EncoderLayer(nn.Module):
     def forward(self, input):
         result, _ = self.forward_with_weights(input)
         return result
+
+
+def multi_head_attention(q, k, v):
+    """
+    Multi head attention, without any input or output projections.
+    Input shapes:
+        q: (n, b, h, dk)
+        k: (m, b, h, dk)
+        v: (m, b, h, dv)
+    Output shapes:
+        a: (n, b, h, dv)
+        w: (b, h, n, m)
+    """
+
+    (n, b, h, d_k) = q.shape
+    (m, b1, h1, d_k1) = k.shape
+    (m1, b2, h2, d_v) = v.shape
+
+    assert b == b1 and b == b2
+    assert h == h1 == h2
+    assert m == m1
+    assert d_k == d_k1
+
+    logits = torch.bmm(
+        q.view(n, b * h, d_k).transpose(0, 1),
+        k.view(m, b * h, d_k).transpose(0, 1).transpose(1, 2)
+    )
+    weights = nnf.softmax(logits, -1)
+
+    att_raw = torch.bmm(
+        weights,
+        v.view(m, b * h, d_v).transpose(0, 1)
+    ).transpose(0, 1).contiguous()
+
+    att_viewed = att_raw.view(n, b, h, d_v)
+    weights_viewed = weights.view(b, h, n, m)
+
+    return att_viewed, weights_viewed
 
 
 class AttShapes(NamedTuple):
