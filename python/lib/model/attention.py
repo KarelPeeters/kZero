@@ -1,3 +1,4 @@
+from math import sqrt
 from typing import NamedTuple
 
 import torch
@@ -88,10 +89,14 @@ class EncoderLayer(nn.Module):
         project_k = self.project_qkv.weight[self.d_k_total:2 * self.d_k_total, :]
         project_v = self.project_qkv.weight[2 * self.d_k_total:, :]
 
-        for w in [self.ff[0].weight, self.ff[2].weight, project_v, self.project_out.weight]:
-            nn.init.xavier_normal_(w, gain=beta)
-        for w in [project_q, project_k]:
-            nn.init.xavier_normal_(w, gain=1)
+        # for v, q, k we leave out the heads factor
+        init_xavier_normal_(self.ff[0].weight, d_model, d_ff, beta)
+        init_xavier_normal_(self.ff[2].weight, d_ff, d_model, beta)
+        init_xavier_normal_(project_v, d_model, d_v, beta)
+        init_xavier_normal_(self.project_out.weight, heads * d_v, d_model, beta)
+
+        init_xavier_normal_(project_q, d_model, d_k, 1)
+        init_xavier_normal_(project_k, d_model, d_k, 1)
 
     def forward_with_weights(self, input):
         # input & output: (n, b, d_model)
@@ -123,6 +128,12 @@ class EncoderLayer(nn.Module):
     def forward(self, input):
         result, _ = self.forward_with_weights(input)
         return result
+
+
+def init_xavier_normal_(tensor, fan_in: int, fan_out: int, gain: float):
+    with torch.no_grad():
+        std = gain * sqrt(2.0 / float(fan_in + fan_out))
+        nn.init.normal_(tensor, 0, std)
 
 
 def multi_head_attention(q, k, v):
