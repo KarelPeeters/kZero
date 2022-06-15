@@ -150,7 +150,7 @@ def multi_head_attention(q, k, v):
         q.view(n, b * h, d_k).transpose(0, 1),
         k.view(m, b * h, d_k).transpose(0, 1).transpose(1, 2)
     )
-    weights = nnf.softmax(logits, -1)
+    weights = nnf.softmax(logits / (d_k1 ** 0.5), -1)
 
     att_raw = torch.bmm(
         weights,
