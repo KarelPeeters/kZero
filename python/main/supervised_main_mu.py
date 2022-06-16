@@ -9,8 +9,8 @@ from lib.data.file import DataFile
 from lib.data.group import DataGroup
 from lib.data.sampler import PositionSampler
 from lib.games import Game
+from lib.layers.simple import Flip
 from lib.logger import Logger
-from lib.model.layers import Flip
 from lib.model.post_act import ResTower, ConcatInputsChannelwise, PredictionHeads, ScalarHead, AttentionPolicyHead, \
     ResBlock
 from lib.networks import MuZeroNetworks

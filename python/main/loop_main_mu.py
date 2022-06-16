@@ -6,8 +6,8 @@ from torch.optim import AdamW
 
 from lib.data.file import DataFile
 from lib.games import Game
+from lib.layers.simple import Flip
 from lib.loop import FixedSelfplaySettings, LoopSettings
-from lib.model.layers import Flip
 from lib.model.post_act import ScalarHead, PredictionHeads, ResTower, ConcatInputsChannelwise, \
     ResBlock, ConvPolicyHead
 from lib.networks import MuZeroNetworks
