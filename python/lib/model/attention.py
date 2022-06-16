@@ -1,9 +1,7 @@
-from math import sqrt
-from typing import NamedTuple
-
 import torch
-import torch.nn.functional as nnf
 from torch import nn
+
+from lib.layers.attention import AttentionBlock
 
 
 class AttentionTower(nn.Module):
@@ -39,7 +37,7 @@ class AttentionTower(nn.Module):
         curr = expanded + self.embedding.unsqueeze(1)
 
         for encoder in self.encoders:
-            curr = encoder(curr)
+            curr, _ = encoder(curr)
 
         # "(h w) b c -> b c h w"
         reshaped = curr.view((h, w, b, self.d_model)).permute((2, 3, 0, 1))
@@ -49,28 +47,23 @@ class AttentionTower(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(
             self,
-            d_model: int, heads: int, d_k: int, d_v: int, d_ff: int,
+            d_model: int, heads: int,
+            d_k: int, d_v: int, d_ff: int,
             dropout: float,
             alpha: float = 1.0, beta: float = 1.0
     ):
         super().__init__()
 
-        # save model sizes
-        assert d_model % heads == 0
-
         self.d_model = d_model
         self.d_ff = d_ff
+        self.alpha = alpha
 
-        self.heads = heads
-        self.d_k = d_k
-        self.d_v = d_v
-
-        self.d_kqv = 2 * d_k + d_v
-        self.d_k_total = heads * self.d_k
-
-        # build inner layers
-        self.project_qkv = nn.Linear(d_model, heads * self.d_kqv, bias=False)
-        self.project_out = nn.Linear(heads * d_v, d_model, bias=False)
+        self.att = AttentionBlock(
+            self_attention=True,
+            d_input_q=d_model, d_input_kv=d_model, d_output=d_model,
+            heads=heads, d_k=d_k, d_v=d_v,
+            beta=beta
+        )
 
         self.ff = nn.Sequential(
             nn.Linear(d_model, d_ff, bias=False),
@@ -82,116 +75,14 @@ class EncoderLayer(nn.Module):
         self.norm_att = nn.LayerNorm(d_model, elementwise_affine=False)
         self.norm_ff = nn.LayerNorm(d_model, elementwise_affine=False)
 
-        # initialize weights according to DeepNet/DeepNorm paper
-        self.alpha = alpha
+    def forward(self, input):
+        (n, b, d_model) = input.shape
+        assert d_model == self.d_model
 
-        project_q = self.project_qkv.weight[:self.d_k_total, :]
-        project_k = self.project_qkv.weight[self.d_k_total:2 * self.d_k_total, :]
-        project_v = self.project_qkv.weight[2 * self.d_k_total:, :]
+        att_inner, weights = self.att(input, input)
+        att_result = self.norm_att(self.dropout(att_inner) + self.alpha * input)
 
-        # for v, q, k we leave out the heads factor
-        init_xavier_normal_(self.ff[0].weight, d_model, d_ff, beta)
-        init_xavier_normal_(self.ff[2].weight, d_ff, d_model, beta)
-        init_xavier_normal_(project_v, d_model, d_v, beta)
-        init_xavier_normal_(self.project_out.weight, heads * d_v, d_model, beta)
-
-        init_xavier_normal_(project_q, d_model, d_k, 1)
-        init_xavier_normal_(project_k, d_model, d_k, 1)
-
-    def forward_with_weights(self, input):
-        # input & output: (n, b, d_model)
-
-        heads = self.heads
-        (n, b, c) = input.shape
-        assert c == self.d_model
-
-        # attention operation
-        qkv = self.project_qkv(input.view(n * b, self.d_model)).view(n, b, heads, self.d_kqv)
-
-        q = qkv[:, :, :, :self.d_k]
-        k = qkv[:, :, :, self.d_k:2 * self.d_k]
-        v = qkv[:, :, :, 2 * self.d_k:]
-
-        att_split, weights = multi_head_attention(k, q, v)
-
-        # output projection, residual, norm
-        att_viewed = att_split.view(n * b, heads * self.d_v)
-        att_projected = self.project_out(att_viewed).view(n, b, self.d_model)
-        att_result = self.norm_att(input * self.alpha + self.dropout(att_projected))
-
-        # linear, residual, norm
-        ff_inner = self.ff(att_result.view(n * b, self.d_model)).view(n, b, self.d_model)
-        ff_result = self.norm_ff(att_result * self.alpha + self.dropout(ff_inner))
+        ff_inner = self.ff(att_result.view(n * b, d_model)).view(n, b, d_model)
+        ff_result = self.norm_ff(self.dropout(ff_inner) + self.alpha * input)
 
         return ff_result, weights
-
-    def forward(self, input):
-        result, _ = self.forward_with_weights(input)
-        return result
-
-
-def init_xavier_normal_(tensor, fan_in: int, fan_out: int, gain: float):
-    with torch.no_grad():
-        std = gain * sqrt(2.0 / float(fan_in + fan_out))
-        nn.init.normal_(tensor, 0, std)
-
-
-def multi_head_attention(q, k, v):
-    """
-    Multi head attention, without any input or output projections.
-    Input shapes:
-        q: (n, b, h, dk)
-        k: (m, b, h, dk)
-        v: (m, b, h, dv)
-    Output shapes:
-        a: (n, b, h, dv)
-        w: (b, h, n, m)
-    """
-
-    (n, b, h, d_k) = q.shape
-    (m, b1, h1, d_k1) = k.shape
-    (m1, b2, h2, d_v) = v.shape
-
-    assert b == b1 and b == b2
-    assert h == h1 == h2
-    assert m == m1
-    assert d_k == d_k1
-
-    logits = torch.bmm(
-        q.view(n, b * h, d_k).transpose(0, 1),
-        k.view(m, b * h, d_k).transpose(0, 1).transpose(1, 2)
-    )
-    weights = nnf.softmax(logits / (d_k1 ** 0.5), -1)
-
-    att_raw = torch.bmm(
-        weights,
-        v.view(m, b * h, d_v).transpose(0, 1)
-    ).transpose(0, 1).contiguous()
-
-    att_viewed = att_raw.view(n, b, h, d_v)
-    weights_viewed = weights.view(b, h, n, m)
-
-    return att_viewed, weights_viewed
-
-
-class AttShapes(NamedTuple):
-    b: int  # batch size
-    n: int  # input sequence length (for k and v)
-    m: int  # output sequence length (for q)
-    heads: int  # the number of heads
-    dk: int  # key size per head (for q and k)
-    dv: int  # value size per head
-
-
-def check_att_shapes(q, k, v, heads: int) -> AttShapes:
-    m, b0, dk_total0 = q.shape
-    n0, b1, dk_total1 = k.shape
-    n1, b2, dv_total = v.shape
-
-    assert b0 == b1 == b2, "Batch size mismatch"
-    assert n0 == n1, "Input seq length mismatch"
-    assert dk_total0 == dk_total1, "Key size mismatch"
-
-    assert dk_total0 % heads == 0 and dv_total % heads == 0, "Size not divisible by heads"
-
-    return AttShapes(b=b0, n=n0, m=m, heads=heads, dk=dk_total0 // heads, dv=dv_total // heads)
