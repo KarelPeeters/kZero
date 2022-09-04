@@ -21,7 +21,7 @@ def main():
 
         cpu_threads_per_device=4,
         gpu_threads_per_device=1,
-        gpu_batch_size=1024,
+        gpu_batch_size=2048,
         gpu_batch_size_root=0,
         search_batch_size=16,
 
@@ -32,8 +32,8 @@ def main():
         temperature=1.0,
         zero_temp_move_count=30,
         q_mode="wdl+0.0",
-        max_game_length=400,
-        dirichlet_alpha=0.2,
+        max_game_length=800,
+        dirichlet_alpha=0.3,
         dirichlet_eps=0.25,
         search_policy_temperature_root=1.4,
         search_policy_temperature_child=1.0,
@@ -41,12 +41,12 @@ def main():
         search_fpu_child="relative+0",
         search_virtual_loss_weight=1.0,
         full_search_prob=1.0,
-        full_iterations=200,
+        full_iterations=400,
         part_iterations=20,
         weights=UctWeights.default(),
         random_symmetries=False,
-        cache_size=200,
-        top_moves=100,
+        cache_size=400,
+        top_moves=0,
     )
 
     train_settings = TrainSettings(
@@ -70,8 +70,8 @@ def main():
             policy_head=AttentionPolicyHead(game, channels, channels),
         )
 
-    # def dummy_network():
-    #     return build_network(1, 8)
+    def dummy_network():
+        return build_network(2, 128)
 
     def initial_network():
         return build_network(16, 128)
@@ -81,21 +81,21 @@ def main():
     # TODO implement retain setting, maybe with a separate training folder even
     settings = LoopSettings(
         gui=sys.platform == "win32",
-        root_path=f"data/loop/{game.name}/profile-batch/",
+        root_path=f"data/loop/{game.name}/12x128_pst/",
         port=63105,
         wait_for_new_network=True,
 
-        dummy_network=None,
+        dummy_network=dummy_network,
         initial_network=initial_network,
         initial_data_files=[DataFile.open(game, path) for path in glob.glob(initial_files_pattern)],
 
         only_generate=False,
 
-        min_buffer_size=1_500_000,
+        min_buffer_size=500_000,
         max_buffer_size=2_000_000,
 
         train_batch_size=128,
-        samples_per_position=0.3,
+        samples_per_position=0.2,
         test_fraction=0.05,
 
         optimizer=lambda params: AdamW(params, weight_decay=1e-3),
@@ -105,7 +105,6 @@ def main():
         train_settings=train_settings,
 
         muzero_steps=None,
-        # TODO should alphazero training include the final position?
         include_final=False,
     )
 
