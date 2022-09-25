@@ -39,11 +39,31 @@ impl<'a> NewPlanner<'a> {
         println!();
         println!();
 
-        // TODO fuse nodes here
+        // TODO fuse nodes
 
-        // TODO continue here
+        // TODO fuse scalar operations
 
         // TODO somehow alloc scratch buffers at some point?
+
+        // TODO allocate buffers (optimally)
+
+        // TODO decide on real strides?
+        //   where can we do the "transpose(matmul)" optimization?
+
+        // TODO convert everything to a proper plan
+
+        // let mut steps = vec![];
+        for node in &planner.nodes {
+            match node {
+                Node::Scalar(_) => {}
+                Node::MatMul { .. } => {}
+                Node::Conv { .. } => {}
+                Node::Gather { .. } => {}
+                Node::Softmax { .. } => {}
+                Node::Layernorm { .. } => {}
+                Node::Reduce { .. } => {}
+            }
+        }
     }
 
     fn new(graph: &'a Graph, batch_size: usize) -> Self {

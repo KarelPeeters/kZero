@@ -48,7 +48,7 @@ pub enum Node<B> {
     },
 }
 
-impl<B: Eq> Node<B> {
+impl<B> Node<B> {
     fn for_each_operand<R>(&self, mut f: impl FnMut(Operand<&B>) -> ControlFlow<R>) -> ControlFlow<R> {
         match self {
             Node::Scalar(block) => block.for_each_operand(f)?,
