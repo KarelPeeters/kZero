@@ -12,6 +12,7 @@ itertools = "0.10.3"
 rand = "0.8.5"
 internal-iterator = "0.2.0"
 image = { version = "0.24.1", default-features = false, features = ["png"] }
+decorum = { version = "0.3.1", default-features = false, features = ["std"] }
 
 lazy_static = "1.4.0"
 

@@ -7,6 +7,7 @@ use crate::wrapper::mem::device::DevicePtr;
 use crate::wrapper::operation::{run_conv_bias_res_activation, run_tensor_op};
 use crate::wrapper::status::Status;
 
+// TODO add alpha1, alpha2 and beta parameters
 /// The arguments necessary for a fused convolution call.
 #[derive(Debug)]
 pub struct FusedConvolutionArgs<P = DevicePtr> {

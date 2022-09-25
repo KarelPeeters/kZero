@@ -411,6 +411,7 @@ impl Graph {
 
         let check = self.check;
 
+        // TODO faster (hashmap) deduplication
         match self.values.iter().position(|cand| cand == &info) {
             Some(index) => {
                 // found duplicate, reuse existing value

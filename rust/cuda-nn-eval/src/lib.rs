@@ -10,6 +10,7 @@ pub mod shape;
 pub mod tester;
 pub mod util;
 
+mod new_planner;
 mod planner;
 
 //TODO make this private again?

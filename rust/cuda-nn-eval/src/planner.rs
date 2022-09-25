@@ -24,6 +24,7 @@ use crate::autokernel::scalar::ScalarKernel;
 use crate::autokernel::softmax::SoftmaxKernel;
 use crate::device_tensor::DeviceTensor;
 use crate::executor::Handles;
+use crate::new_planner::core::NewPlanner;
 use crate::offset_tensor::{OffsetPtr, PtrTensor};
 use crate::shape::StridedShape;
 use crate::step::{GatherOpArgs, LayernormOpArgs, ReduceOpArgs, ScalarOpArgs, SoftmaxOpArgs, Step, StepInfo};
@@ -107,6 +108,9 @@ type VisitResult<T> = Result<T, Value>;
 
 impl<'a> Planner<'a> {
     pub fn plan(handles: &'a Handles, graph: &'a Graph, batch_size: usize) -> Plan {
+        // TODO remove this again (obviously)
+        NewPlanner::plan(handles, graph, batch_size);
+
         let mut planner = Planner::new(&handles, graph, batch_size);
 
         // allocate inputs (even if they're not actually used)
@@ -1003,7 +1007,7 @@ impl OffsetPtr for PlanPtr {
     }
 }
 
-fn binary_op_str(op: BinaryOp, a: &str, b: &str) -> String {
+pub fn binary_op_str(op: BinaryOp, a: &str, b: &str) -> String {
     match op {
         BinaryOp::Add => format!("{} + {}", a, b),
         BinaryOp::Sub => format!("{} - {}", a, b),
@@ -1015,7 +1019,7 @@ fn binary_op_str(op: BinaryOp, a: &str, b: &str) -> String {
     }
 }
 
-fn unary_op_str(op: UnaryOp, x: &str) -> String {
+pub fn unary_op_str(op: UnaryOp, x: &str) -> String {
     match op {
         UnaryOp::Abs => format!("fabs({})", x),
         UnaryOp::Neg => format!("-({})", x),
