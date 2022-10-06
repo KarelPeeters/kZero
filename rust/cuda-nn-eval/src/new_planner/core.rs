@@ -274,6 +274,8 @@ fn collect_used_values(graph: &Graph) -> HashSet<Value> {
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct NewPtr {
     index: usize,
+    // TODO we need an offset per axis if we want to still allow permuting afterwards
+    //   is that enough? -> not really, what about view operations that combine different axes together?
     offset: isize,
 }
 
