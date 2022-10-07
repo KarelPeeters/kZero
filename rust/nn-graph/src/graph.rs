@@ -284,6 +284,12 @@ impl Index<Value> for Graph {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum User {
+    Value(Value),
+    Output(usize),
+}
+
 impl Graph {
     pub fn new() -> Self {
         Graph {
@@ -338,6 +344,19 @@ impl Graph {
 
     pub fn is_hidden_with_users(&self, value: Value, users: usize) -> bool {
         self.is_hidden(value) && self[value].users == users
+    }
+
+    pub fn all_users(&self) -> HashMap<Value, Vec<User>> {
+        let mut result: HashMap<Value, Vec<User>> = HashMap::new();
+        for value in self.values() {
+            for input in self[value].operation.inputs() {
+                result.entry(input).or_default().push(User::Value(value));
+            }
+        }
+        for (index, &output) in self.outputs().iter().enumerate() {
+            result.entry(output).or_default().push(User::Output(index));
+        }
+        result
     }
 
     pub fn is_const(&self, value: Value) -> bool {

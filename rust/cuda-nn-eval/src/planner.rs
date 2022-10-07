@@ -1,22 +1,22 @@
 use std::cmp::{max, min};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use bytemuck::cast_slice;
 use internal_iterator::InternalIterator;
 use itertools::Itertools;
 
-use crate::autokernel::common::DisplayCFloat;
 use cuda_sys::bindings::cudnnActivationMode_t;
 use cuda_sys::wrapper::descriptor::{ActivationDescriptor, ConvolutionDescriptor};
 use cuda_sys::wrapper::group::{BatchedMatMulArgs, FusedConvolutionArgs};
 use cuda_sys::wrapper::handle::Device;
 use cuda_sys::wrapper::mem::device::DevicePtr;
 use cuda_sys::wrapper::operation::STANDARD_CONV_ALGO;
-use nn_graph::graph::{BinaryOp, Graph, Operation, SliceRange, UnaryOp, Value};
+use nn_graph::graph::{BinaryOp, Graph, Operation, SliceRange, UnaryOp, User, Value};
 use nn_graph::optimizer::recurse::heap_recurse;
 use nn_graph::shape::{ConcreteShape, Size};
 
+use crate::autokernel::common::DisplayCFloat;
 use crate::autokernel::gather::GatherKernel;
 use crate::autokernel::layernorm::LayernormKernel;
 use crate::autokernel::reduce::{ReduceCode, ReduceKernel};
@@ -126,9 +126,14 @@ impl<'a> Planner<'a> {
         let buffer_count = planner.shared_buffers.len();
         let step_count = planner.steps.len();
 
+        // TODO reorder steps to minimize shared memory usage (respecting dependencies)!
+        //     maybe don't do this greedily but with N-step lookahead?
+        // TODO in general switch to a proper linear allocator, but maybe we can delay that a bit more
+
         // determine live ranges for shared tensors
-        let live_ranges = {
+        let (live_ranges, use_points) = {
             let mut live_ranges = vec![(step_count, 0); buffer_count];
+            let mut use_points = vec![HashSet::<usize>::default(); buffer_count];
 
             for (si, step_info) in planner.steps.iter().enumerate() {
                 step_info.step.ptr_operands().for_each(|op| {
@@ -136,6 +141,8 @@ impl<'a> Planner<'a> {
                         let (lower, upper) = &mut live_ranges[index];
                         *lower = min(*lower, si);
                         *upper = max(*upper, si);
+
+                        use_points[index].insert(si);
                     }
                 })
             }
@@ -145,6 +152,8 @@ impl<'a> Planner<'a> {
                 if let &PlanBuffer::Shared { index } = &output.ptr().buffer {
                     let (_, upper) = &mut live_ranges[index];
                     *upper = step_count;
+
+                    use_points[index].insert(step_count);
                 }
             }
 
@@ -153,52 +162,147 @@ impl<'a> Planner<'a> {
                 if let &PlanBuffer::Shared { index } = &input.ptr().buffer {
                     let (lower, _) = &mut live_ranges[index];
                     *lower = 0;
+
+                    use_points[index].insert(0);
                 }
             }
 
-            live_ranges
+            (live_ranges, use_points)
         };
 
         // actually allocate shared tensors
         let mut free_allocations: HashMap<usize, Vec<DevicePtr>> = Default::default();
-        let device = planner.device();
+        let device = handles.device();
 
         let mut shared_allocations: Vec<Option<DevicePtr>> = vec![None; buffer_count];
 
         let mut shared_bytes = 0;
         let mut curr_shared_bytes = 0;
         let mut max_shared_bytes = 0;
+        let mut max_shared_bytes_step = 0;
+        let mut max_live_allocations = HashSet::new();
+
+        let mut live_allocations = HashSet::new();
 
         for si in 0..step_count {
+            let mut bytes_plus = 0;
+            let mut bytes_minus = 0;
+
             for (ti, &(start, _)) in live_ranges.iter().enumerate() {
                 if start == si {
                     // allocate the given tensor
                     let size_bytes = planner.shared_buffers[ti].size_bytes;
                     curr_shared_bytes += size_bytes;
+                    bytes_plus += size_bytes;
+
+                    live_allocations.insert(ti);
+
+                    if curr_shared_bytes > max_shared_bytes {
+                        max_shared_bytes_step = si;
+                        max_live_allocations = live_allocations.clone();
+                    }
                     max_shared_bytes = max(max_shared_bytes, curr_shared_bytes);
 
                     let vec = free_allocations.entry(size_bytes).or_insert_with(Vec::new);
                     let ptr = vec.pop().unwrap_or_else(|| {
                         shared_bytes += size_bytes;
-                        device.alloc(size_bytes)
+                        // TODO start actually allocating again
+                        // device.alloc(size_bytes)
+                        device.alloc(0)
                     });
                     assert!(shared_allocations[ti].is_none());
                     shared_allocations[ti] = Some(ptr);
                 }
             }
 
+            let bytes_peak = curr_shared_bytes;
+
             for (ti, &(start, end)) in live_ranges.iter().enumerate() {
                 if start <= si && end == si {
                     // free the given tensor
                     let size_bytes = planner.shared_buffers[ti].size_bytes;
                     curr_shared_bytes -= size_bytes;
+                    bytes_minus += size_bytes;
 
                     let ptr = shared_allocations[ti].as_ref().unwrap().clone();
                     let vec = free_allocations.get_mut(&size_bytes).unwrap();
                     vec.push(ptr);
                 }
             }
+
+            println!("step {} peak {} (+{} -{})", si, bytes_peak, bytes_plus, bytes_minus);
         }
+
+        // let mut f = BufWriter::new(std::fs::File::create("live_grid.txt").unwrap());
+        // for (ti, &(start, end)) in live_ranges.iter().enumerate() {
+        //     write!(&mut f, "{:>8}: ", ti).unwrap();
+        //     for si in 0..step_count {
+        //         let b = (start..end + 1).contains(&si);
+        //         let c = if b { "*" } else { " " };
+        //         write!(&mut f, "{}", c).unwrap();
+        //     }
+        //     writeln!(&mut f).unwrap();
+        // }
+        // f.flush().unwrap();
+        // drop(f);
+
+        println!();
+        println!();
+
+        println!("# Steps #");
+        for (si, step) in planner.steps.iter().enumerate() {
+            println!("Step {}: {:?}", si, step);
+        }
+
+        println!();
+        println!();
+
+        println!("# Live ranges #");
+
+        for (ti, &(start, end)) in live_ranges.iter().enumerate() {
+            let points = use_points[ti].iter().copied().sorted().collect_vec();
+
+            println!(
+                "Live range {}: {}..{} length {}, buffer {:?}, points {:?}",
+                ti,
+                start,
+                end,
+                (start..end).len(),
+                planner.shared_buffers[ti],
+                points,
+            );
+        }
+
+        println!();
+        println!();
+
+        println!("# Max memory #");
+
+        println!("Max memory step: {}", max_shared_bytes_step);
+        println!(
+            "Live allocations: {:?}",
+            max_live_allocations.into_iter().sorted().collect_vec()
+        );
+        println!("With live ranges:");
+        for (ti, &(start, end)) in live_ranges.iter().enumerate() {
+            if (start..end + 1).contains(&max_shared_bytes_step) {
+                let points = use_points[ti].iter().copied().sorted().collect_vec();
+                println!(
+                    "Live range {}: {}..{} length {}, buffer {:?}, points {:?}",
+                    ti,
+                    start,
+                    end,
+                    (start..end).len(),
+                    planner.shared_buffers[ti],
+                    points,
+                );
+            }
+        }
+
+        println!();
+        println!();
+
+        // TODO fix the crash that follows because we didn't actually allocate anything
 
         // collect shared allocations
         let shared_allocations = shared_allocations
@@ -235,6 +339,8 @@ impl<'a> Planner<'a> {
             zero_bytes,
         };
 
+        println!("{:#?}", mem_usage);
+
         // realize planned tensors and steps
         let ctx = RealizationContext {
             shared_allocations,
@@ -268,6 +374,7 @@ impl<'a> Planner<'a> {
             handles,
             graph,
             batch_size,
+            users: graph.all_users(),
             shared_buffers: vec![],
             map: Default::default(),
             steps: vec![],
@@ -764,11 +871,14 @@ impl<'a> Planner<'a> {
             Operation::Unary { .. } | Operation::Binary { .. }
         ));
 
+        let mut block = ScalarBlock::default();
+        let result_y = self.visit_fused_scalar_recurse(value, &mut block, true)?;
+
+        // see if we can safely reuse one of the input tensors as output
+
         let result_shape = self.graph[value].shape.eval(self.batch_size);
         let result = self.alloc_tensor_shared(result_shape, Some(value));
 
-        let mut block = ScalarBlock::default();
-        let result_y = self.visit_fused_scalar_recurse(value, &mut block, true)?;
         block.store_operand_y(&result, result_y);
 
         self.plan_scalar_op(&block.operation, block.operands, value);
@@ -821,6 +931,7 @@ impl<'a> Planner<'a> {
             }
         };
 
+        block.defined_values.insert(value);
         let y_output = block.alloc_y();
         writeln!(&mut block.operation, "float y{} = {};", y_output, op_str).unwrap();
         Ok(y_output)
@@ -895,6 +1006,8 @@ struct ScalarBlock {
     operands: Vec<PlanTensor>,
     // map operand x to y index
     loaded_operands: Vec<Option<usize>>,
+
+    defined_values: HashSet<Value>,
 
     operation: String,
     next_y_index: usize,
