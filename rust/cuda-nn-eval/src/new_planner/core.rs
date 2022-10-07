@@ -5,11 +5,13 @@ use itertools::Itertools;
 use nn_graph::graph::{ConstantData, Graph, Operation, Value};
 use nn_graph::shape::ConcreteShape;
 
+use crate::autokernel::scalar::ScalarKernel;
 use crate::executor::Handles;
 use crate::new_planner::node::Node;
 use crate::new_planner::scalar_block::ScalarBlock;
 use crate::offset_tensor::{OffsetPtr, PtrTensor};
 use crate::shape::StridedShape;
+use crate::step::{ScalarOpArgs, Step};
 
 type NewTensor = PtrTensor<NewPtr>;
 
@@ -26,7 +28,7 @@ pub struct NewPlanner<'a> {
 }
 
 impl<'a> NewPlanner<'a> {
-    pub fn plan(_handles: &'a Handles, graph: &'a Graph, batch_size: usize) {
+    pub fn plan(handles: &'a Handles, graph: &'a Graph, batch_size: usize) {
         let mut planner = NewPlanner::new(graph, batch_size);
 
         planner.add_initial_nodes();
@@ -52,18 +54,40 @@ impl<'a> NewPlanner<'a> {
 
         // TODO convert everything to a proper plan
 
-        // let mut steps = vec![];
-        for node in &planner.nodes {
-            match node {
-                Node::Scalar(_) => {}
-                Node::MatMul { .. } => {}
-                Node::Conv { .. } => {}
-                Node::Gather { .. } => {}
-                Node::Softmax { .. } => {}
-                Node::Layernorm { .. } => {}
-                Node::Reduce { .. } => {}
-            }
-        }
+        let device = handles.device();
+
+        // TODO is all of this actually the right level of abstraction?
+        //   it feels like it's going to be annoying to respect requirements and decide strides after we've split
+        //   things into PtrTensors
+
+        let steps = planner
+            .nodes
+            .iter()
+            .map(|node| match node {
+                Node::Scalar(block) => {
+                    let operands = block
+                        .operands()
+                        .iter()
+                        .map(|operand| operand.buffer.clone())
+                        .collect_vec();
+                    let shapes = operands
+                        .iter()
+                        .map(|operand| operand.strided_shape().clone())
+                        .collect_vec();
+
+                    let kernel = ScalarKernel::new_for_shapes(device, &block.to_operation(), &shapes);
+                    Step::ScalarOp(ScalarOpArgs { kernel, operands })
+                }
+                &Node::MatMul { .. } => todo!(),
+                Node::Conv { .. } => todo!(),
+                Node::Gather { .. } => todo!(),
+                Node::Softmax { .. } => todo!(),
+                Node::Layernorm { .. } => todo!(),
+                Node::Reduce { .. } => todo!(),
+            })
+            .collect_vec();
+
+        todo!("actually plan things");
     }
 
     fn new(graph: &'a Graph, batch_size: usize) -> Self {

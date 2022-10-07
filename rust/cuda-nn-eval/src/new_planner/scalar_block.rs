@@ -18,10 +18,10 @@ pub struct ScalarBlock<B> {
 }
 
 #[derive(Debug)]
-struct ScalarOperand<B> {
-    buffer: B,
-    is_input: bool,
-    output_value: Option<ScalarValue>,
+pub struct ScalarOperand<B> {
+    pub buffer: B,
+    pub is_input: bool,
+    pub output_value: Option<ScalarValue>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -143,6 +143,10 @@ impl<B> ScalarBlock<B> {
         }
 
         result
+    }
+
+    pub fn operands(&self) -> &[ScalarOperand<B>] {
+        &self.operands
     }
 }
 
