@@ -6,6 +6,10 @@ constexpr __device__ int ceil_div(int x, int y) {
     return (x + y - 1) / y;
 }
 
+constexpr __device__ bool is_power_of_two(int x) {
+    return (x & (x - 1)) == 0;
+}
+
 struct KernelInfo {
     int block_count;
     int threads_per_block;

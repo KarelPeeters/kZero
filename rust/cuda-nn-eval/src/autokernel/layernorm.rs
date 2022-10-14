@@ -6,7 +6,7 @@ use cuda_sys::wrapper::rtc::core::{CuFunction, Dim3};
 use cuda_sys::wrapper::status::Status;
 
 use crate::autokernel::common::{
-    c_array_string, c_nested_array_string, ceil_div, compile_cached_kernel, fill_replacements, DisplayCFloat, KernelKey,
+    c_array_string, c_nested_array_string, compile_cached_kernel, fill_replacements, DisplayCFloat, KernelKey,
 };
 use crate::device_tensor::DeviceTensor;
 use crate::shape::StridedShape;
@@ -17,7 +17,7 @@ pub struct LayernormKernel {
     output_shape: StridedShape,
 
     _norm_axis: usize,
-    static_size: usize,
+    _static_size: usize,
 
     _eps: f32,
     _alpha0: f32,
@@ -25,6 +25,9 @@ pub struct LayernormKernel {
     _beta: f32,
 
     function: CuFunction,
+
+    blocks: u32,
+    threads_per_block: u32,
 }
 
 const LAYERNORM_SOURCE: &str = include_str!("layernorm.cu");
@@ -62,9 +65,12 @@ impl LayernormKernel {
         static_strides[1].push(0);
         static_dense_strides.push(1);
 
+        let blocks = static_size as u32;
+        let threads_per_block = 512;
+
         let replacements = vec![
+            ("$THREADS_PER_BLOCK$", format!("{}", threads_per_block)),
             ("$CACHE$", format!("{}", cache)),
-            ("$REDUCE_THREAD$", format!("{}", reduce_thread)),
             ("$RANK$", format!("{}", input_shape.rank())),
             ("$STATIC_SIZE$", format!("{}", static_size)),
             ("$NORM_SIZE$", format!("{}", norm_size)),
@@ -92,11 +98,14 @@ impl LayernormKernel {
             input_shape: input_shape.clone(),
             output_shape: output_shape.clone(),
             _norm_axis: norm_axis,
-            static_size,
+            _static_size: static_size,
             _eps: eps,
             _alpha0: alpha_0,
             _alpha1: alpha_1,
             _beta: beta,
+
+            blocks,
+            threads_per_block,
         }
     }
 
@@ -123,17 +132,14 @@ impl LayernormKernel {
         args.push(output.ptr().ptr());
         let args = args.finish();
 
-        //TODO see if these settings make sense for the typically larger layernorm sizes
-
-        let warps = self.static_size;
-        let warps_per_block = 4;
-        let threads_per_warp = 32;
-
-        let threads_per_block = (threads_per_warp * warps_per_block) as u32;
-        let blocks = ceil_div((warps * threads_per_warp) as u32, threads_per_block as u32);
-
         self.function
-            .launch_kernel(Dim3::single(blocks), Dim3::single(threads_per_block), 0, &stream, &args)
+            .launch_kernel(
+                Dim3::single(self.blocks),
+                Dim3::single(self.threads_per_block),
+                0,
+                &stream,
+                &args,
+            )
             .unwrap();
     }
 }

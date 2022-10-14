@@ -3,7 +3,10 @@
 
 // de-dollar-ify template parameters
 #define CACHE $CACHE$
-#define REDUCE_THEAD $REDUCE_THREAD$
+
+const int THREADS_PER_BLOCK = $THREADS_PER_BLOCK$;
+static_assert(is_power_of_two(THREADS_PER_BLOCK),
+"THREADS_PER_BLOCK must be a power of two");
 
 const int RANK = $RANK$;
 const int STATIC_SIZE = $STATIC_SIZE$;
@@ -38,11 +41,10 @@ __global__ void layernorm_kernel(
         float *output
 ) {
     KernelInfo info = kernel_info();
+    assert(info.threads_per_block == THREADS_PER_BLOCK);
 
-    int static_index = info.global_warp_id;
-    if (static_index >= STATIC_SIZE) {
-        return;
-    }
+    int static_index = info.block_id;
+    assert(static_index < STATIC_SIZE);
 
     Array<int, 2> static_offsets = flat_index_to_offsets<RANK, 2>(static_index, STATIC_DENSE_STRIDES, STATIC_STRIDES);
 
@@ -53,66 +55,38 @@ __global__ void layernorm_kernel(
 #endif
 
     // calculate variance and mean per thread
-    for (int i = info.lane_id; i < NORM_SIZE; i += 32) {
+    for (int i = info.lane_id; i < NORM_SIZE; i += info.threads_per_block) {
         int offset_x = static_offsets[0] + i * NORM_STRIDES[0];
         float x = calculate_x(input0, input1, offset_x);
-
 #if CACHE
         cache[i] = x;
 #endif
         wf_thread.append(x);
     }
 
-    // reduce variance and mean across the warp
-#if REDUCE_THEAD
-    // reduce using method that would generalize when we don't stay within a single warp
-    int wid = info.warp_id;
-    int tid = info.lane_id;
+    // reduce variance and mean across the block
+    int tid = info.thread_id;
 
-    const int MAX_WARP_COUNT = 4;
-    assert(wid < MAX_WARP_COUNT);
+    __shared__ char wf_reduction_bytes[THREADS_PER_BLOCK * sizeof(Welford)];
+    Welford *wf_reduction = (Welford *) wf_reduction_bytes;
 
-    __shared__ char wf_reduction_bytes[MAX_WARP_COUNT][32 * sizeof(Welford)];
-    Welford (*wf_reduction)[32] = (Welford (*)[32]) wf_reduction_bytes;
-
-    wf_reduction[wid][tid] = wf_thread;
+    wf_reduction[tid] = wf_thread;
     __syncthreads();
 
-    for (int s = 16; s > 0; s >>= 1) {
+    assert(is_power_of_two(info.threads_per_block));
+    for (int s = info.threads_per_block >> 1; s > 0; s >>= 1) {
         Welford wf_new;
         if (tid < s) {
-            wf_new = wf_reduction[wid][tid].combine(wf_reduction[wid][tid + s]);
+            wf_new = wf_reduction[tid].combine(wf_reduction[tid + s]);
         }
         __syncthreads();
         if (tid < s) {
-            wf_reduction[wid][tid] = wf_new;
+            wf_reduction[tid] = wf_new;
         }
         __syncthreads();
     }
 
-    Welford wf_total = wf_reduction[wid][0];
-#else
-    // reduce using warp based primitives
-    Welford wf_curr = wf_thread;
-
-    for (int offset = 16; offset > 0; offset /= 2) {
-        Welford wf_next = Welford(
-                __shfl_down_sync(FULL_WARP_MASK, wf_curr.count, offset),
-                __shfl_down_sync(FULL_WARP_MASK, wf_curr.mean, offset),
-                __shfl_down_sync(FULL_WARP_MASK, wf_curr.m2, offset)
-        );
-
-        wf_curr = wf_curr.combine(wf_next);
-    }
-
-    // broadcast to all threads
-    Welford wf_total = Welford(
-            __shfl_sync(FULL_WARP_MASK, wf_curr.count, 0),
-            __shfl_sync(FULL_WARP_MASK, wf_curr.mean, 0),
-            __shfl_sync(FULL_WARP_MASK, wf_curr.m2, 0)
-    );
-#endif
-
+    Welford wf_total = wf_reduction[0];
     float mean = wf_total.final_mean();
     float variance = wf_total.final_variance();
 
