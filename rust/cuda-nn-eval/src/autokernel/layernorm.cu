@@ -1,6 +1,8 @@
 #include "util.cu"
 
 // de-dollar-ify template parameters
+#define CACHE $CACHE$
+
 const int RANK = $RANK$;
 const int STATIC_SIZE = $STATIC_SIZE$;
 const int NORM_SIZE = $NORM_SIZE$;
@@ -27,7 +29,7 @@ __device__ float calculate_x(float *input0, float *input1, int offset_x) {
 // TODO add caching again for small enough sizes (and make sure it works for 64-bit addresses)
 // Every block handles a single layernorm group.
 // Uses Welford's algorithm to compute the mean and variance
-//   (see https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm).
+//   (see https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford%27s_online_algorithm).
 __global__ void layernorm_kernel(
         float *input0,
         float *input1,
@@ -46,10 +48,18 @@ __global__ void layernorm_kernel(
     float mean = 0.0;
     float m2 = 0.0;
 
+#if CACHE
+    __shared__ float cache[NORM_SIZE];
+#endif
+
     // calculate variance and mean per thread
     for (int i = info.lane_id; i < NORM_SIZE; i += 32) {
         int offset_x = static_offsets[0] + i * NORM_STRIDES[0];
         float x = calculate_x(input0, input1, offset_x);
+
+#if CACHE
+        cache[i] = x;
+#endif
 
         count += 1;
         float delta = x - mean;
@@ -89,7 +99,12 @@ __global__ void layernorm_kernel(
         int offset_x = static_offsets[0] + i * NORM_STRIDES[0];
         int offset_y = static_offsets[1] + i * NORM_STRIDES[1];
 
+#if CACHE
+        float x = cache[i];
+#else
         float x = calculate_x(input0, input1, offset_x);
+#endif
+
         float y = (x - mean) / denom;
         output[offset_y] = BETA * y;
     }

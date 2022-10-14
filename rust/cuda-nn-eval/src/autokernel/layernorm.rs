@@ -6,7 +6,7 @@ use cuda_sys::wrapper::rtc::core::{CuFunction, Dim3};
 use cuda_sys::wrapper::status::Status;
 
 use crate::autokernel::common::{
-    c_array_string, c_nested_array_string, ceil_div, compile_cached_kernel, DisplayCFloat, fill_replacements, KernelKey,
+    c_array_string, c_nested_array_string, ceil_div, compile_cached_kernel, fill_replacements, DisplayCFloat, KernelKey,
 };
 use crate::device_tensor::DeviceTensor;
 use crate::shape::StridedShape;
@@ -39,6 +39,7 @@ impl LayernormKernel {
         alpha_0: f32,
         alpha_1: f32,
         beta: f32,
+        cache: bool,
     ) -> Self {
         assert_eq!(input_shape.shape(), output_shape.shape());
 
@@ -61,6 +62,7 @@ impl LayernormKernel {
         static_dense_strides.push(1);
 
         let replacements = vec![
+            ("$CACHE$", format!("{}", cache)),
             ("$RANK$", format!("{}", input_shape.rank())),
             ("$STATIC_SIZE$", format!("{}", static_size)),
             ("$NORM_SIZE$", format!("{}", norm_size)),
