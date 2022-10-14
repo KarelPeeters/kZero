@@ -40,6 +40,7 @@ impl LayernormKernel {
         alpha_1: f32,
         beta: f32,
         cache: bool,
+        reduce_thread: bool,
     ) -> Self {
         assert_eq!(input_shape.shape(), output_shape.shape());
 
@@ -63,6 +64,7 @@ impl LayernormKernel {
 
         let replacements = vec![
             ("$CACHE$", format!("{}", cache)),
+            ("$REDUCE_THREAD$", format!("{}", reduce_thread)),
             ("$RANK$", format!("{}", input_shape.rank())),
             ("$STATIC_SIZE$", format!("{}", static_size)),
             ("$NORM_SIZE$", format!("{}", norm_size)),

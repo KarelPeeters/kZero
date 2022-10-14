@@ -2,6 +2,7 @@
 
 // de-dollar-ify template parameters
 #define CACHE $CACHE$
+#define REDUCE_THEAD $REDUCE_THREAD$
 
 const int RANK = $RANK$;
 const int STATIC_SIZE = $STATIC_SIZE$;
@@ -67,7 +68,54 @@ __global__ void layernorm_kernel(
         m2 += delta * (x - mean);
     }
 
-    // combine variance and mean between threads
+    // combine variance and mean over the warp
+#if REDUCE_THEAD
+    __shared__ int reduction_count[32];
+    __shared__ float reduction_mean[32];
+    __shared__ float reduction_m2[32];
+
+    int tid = info.warp_id;
+
+    reduction_count[tid] = count;
+    reduction_mean[tid] = mean;
+    reduction_m2[tid] = m2;
+
+    __syncthreads();
+
+    for (int s = 32; s > 0; s >>= 1) {
+        if (tid < s) {
+            int next_count = reduction_count[tid + s];
+            float next_mean = reduction_mean[tid + s];
+            float next_m2 = reduction_m2[tid + s];
+
+            int count = reduction_count[tid];
+            float mean = reduction_mean[tid];
+            float m2 = reduction_m2[tid];
+
+            int prev_count = count;
+            count += next_count;
+            float delta = next_mean - mean;
+            float factor = (float) next_count / (float) count;
+            if (factor != factor) {
+                factor = 0.0;
+            }
+            mean += delta * factor;
+            m2 += next_m2 + delta * delta * prev_count * factor;
+
+            reduction_count[tid] = count;
+            reduction_mean[tid] = mean;
+            reduction_m2[tid] = m2;
+        }
+        __syncthreads();
+    }
+
+    count = 0;
+    mean = reduction_mean[0];
+    m2 = reduction_m2[0];
+
+    float var = m2 / count;
+    float denom = sqrt(var + EPS);
+#else
     for (int offset = 16; offset > 0; offset /= 2) {
         int next_count = __shfl_down_sync(FULL_WARP_MASK, count, offset);
         float next_mean = __shfl_down_sync(FULL_WARP_MASK, mean, offset);
@@ -91,8 +139,11 @@ __global__ void layernorm_kernel(
     float denom = sqrt(var + EPS);
 
     // broadcast to all threads
+    count = 0;
     mean = __shfl_sync(FULL_WARP_MASK, mean, 0);
     denom = __shfl_sync(FULL_WARP_MASK, denom, 0);
+
+#endif
 
     // actually normalize and write to output
     for (int i = info.lane_id; i < NORM_SIZE; i += 32) {

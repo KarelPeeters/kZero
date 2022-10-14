@@ -427,6 +427,7 @@ impl<'a> Planner<'a> {
                     alpha_1,
                     1.0,
                     false,
+                    false,
                 );
 
                 let args = LayernormOpArgs {
