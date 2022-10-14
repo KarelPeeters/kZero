@@ -15,6 +15,7 @@ lazy_static! {
     static ref HEADERS: HashMap<&'static str, &'static str> = {
         let mut map = HashMap::new();
         map.insert("util.cu", include_str!("util.cu"));
+        map.insert("welford.cu", include_str!("welford.cu"));
         map
     };
 }

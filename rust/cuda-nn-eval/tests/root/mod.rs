@@ -9,3 +9,4 @@ mod kernels;
 mod onnx;
 
 mod slow;
+mod welford;

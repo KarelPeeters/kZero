@@ -1,3 +1,7 @@
+#pragma once
+
+const float NaN = 1.0 / 0.0;
+
 constexpr __device__ int ceil_div(int x, int y) {
     return (x + y - 1) / y;
 }
@@ -11,6 +15,7 @@ struct KernelInfo {
     int thread_id;
     int global_thread_id;
 
+    int warps_per_block;
     int warp_id;
     int global_warp_id;
     int lane_id;
@@ -29,9 +34,11 @@ __device__ KernelInfo kernel_info() {
     info.thread_id = threadIdx.x;
     info.global_thread_id = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int warps_per_block = ceil_div(info.threads_per_block, 32);
-    info.global_warp_id = info.block_id * warps_per_block + info.thread_id / 32;
-    info.lane_id = threadIdx.x % 32;
+    info.warps_per_block = ceil_div(info.threads_per_block, 32);
+    info.warp_id = info.thread_id / 32;
+    info.lane_id = info.thread_id % 32;
+
+    info.global_warp_id = info.block_id * info.warps_per_block + info.warp_id;
 
     info.lane_count = 32;
 

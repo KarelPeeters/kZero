@@ -1,4 +1,5 @@
 #include "util.cu"
+#include "welford.cu"
 
 // de-dollar-ify template parameters
 #define CACHE $CACHE$
@@ -45,9 +46,7 @@ __global__ void layernorm_kernel(
 
     Array<int, 2> static_offsets = flat_index_to_offsets<RANK, 2>(static_index, STATIC_DENSE_STRIDES, STATIC_STRIDES);
 
-    int count = 0;
-    float mean = 0.0;
-    float m2 = 0.0;
+    Welford wf_thread = Welford();
 
 #if CACHE
     __shared__ float cache[NORM_SIZE];
@@ -61,91 +60,65 @@ __global__ void layernorm_kernel(
 #if CACHE
         cache[i] = x;
 #endif
-
-        count += 1;
-        float delta = x - mean;
-        mean += delta / count;
-        m2 += delta * (x - mean);
+        wf_thread.append(x);
     }
 
-    // combine variance and mean over the warp
+    // reduce variance and mean across the warp
 #if REDUCE_THEAD
-    __shared__ int reduction_count[32];
-    __shared__ float reduction_mean[32];
-    __shared__ float reduction_m2[32];
+    // reduce using method that would generalize when we don't stay within a single warp
+    int wid = info.warp_id;
+    int tid = info.lane_id;
 
-    int tid = info.warp_id;
+    const int MAX_WARP_COUNT = 4;
+    assert(wid < MAX_WARP_COUNT);
 
-    reduction_count[tid] = count;
-    reduction_mean[tid] = mean;
-    reduction_m2[tid] = m2;
+    __shared__ char wf_reduction_bytes[MAX_WARP_COUNT][32 * sizeof(Welford)];
+    Welford (*wf_reduction)[32] = (Welford (*)[32]) wf_reduction_bytes;
 
+    wf_reduction[wid][tid] = wf_thread;
     __syncthreads();
 
-    for (int s = 32; s > 0; s >>= 1) {
+    for (int s = 16; s > 0; s >>= 1) {
+        Welford wf_new;
         if (tid < s) {
-            int next_count = reduction_count[tid + s];
-            float next_mean = reduction_mean[tid + s];
-            float next_m2 = reduction_m2[tid + s];
-
-            int count = reduction_count[tid];
-            float mean = reduction_mean[tid];
-            float m2 = reduction_m2[tid];
-
-            int prev_count = count;
-            count += next_count;
-            float delta = next_mean - mean;
-            float factor = (float) next_count / (float) count;
-            if (factor != factor) {
-                factor = 0.0;
-            }
-            mean += delta * factor;
-            m2 += next_m2 + delta * delta * prev_count * factor;
-
-            reduction_count[tid] = count;
-            reduction_mean[tid] = mean;
-            reduction_m2[tid] = m2;
+            wf_new = wf_reduction[wid][tid].combine(wf_reduction[wid][tid + s]);
+        }
+        __syncthreads();
+        if (tid < s) {
+            wf_reduction[wid][tid] = wf_new;
         }
         __syncthreads();
     }
 
-    count = 0;
-    mean = reduction_mean[0];
-    m2 = reduction_m2[0];
-
-    float var = m2 / count;
-    float denom = sqrt(var + EPS);
+    Welford wf_total = wf_reduction[wid][0];
 #else
+    // reduce using warp based primitives
+    Welford wf_curr = wf_thread;
+
     for (int offset = 16; offset > 0; offset /= 2) {
-        int next_count = __shfl_down_sync(FULL_WARP_MASK, count, offset);
-        float next_mean = __shfl_down_sync(FULL_WARP_MASK, mean, offset);
-        float next_m2 = __shfl_down_sync(FULL_WARP_MASK, m2, offset);
+        Welford wf_next = Welford(
+                __shfl_down_sync(FULL_WARP_MASK, wf_curr.count, offset),
+                __shfl_down_sync(FULL_WARP_MASK, wf_curr.mean, offset),
+                __shfl_down_sync(FULL_WARP_MASK, wf_curr.m2, offset)
+        );
 
-        int prev_count = count;
-        count += next_count;
-
-        float delta = next_mean - mean;
-        float factor = (float) next_count / (float) count;
-
-        if (factor != factor) {
-            factor = 0.0;
-        }
-
-        mean += delta * factor;
-        m2 += next_m2 + delta * delta * prev_count * factor;
+        wf_curr = wf_curr.combine(wf_next);
     }
 
-    float var = m2 / count;
-    float denom = sqrt(var + EPS);
-
     // broadcast to all threads
-    count = 0;
-    mean = __shfl_sync(FULL_WARP_MASK, mean, 0);
-    denom = __shfl_sync(FULL_WARP_MASK, denom, 0);
-
+    Welford wf_total = Welford(
+            __shfl_sync(FULL_WARP_MASK, wf_curr.count, 0),
+            __shfl_sync(FULL_WARP_MASK, wf_curr.mean, 0),
+            __shfl_sync(FULL_WARP_MASK, wf_curr.m2, 0)
+    );
 #endif
 
+    float mean = wf_total.final_mean();
+    float variance = wf_total.final_variance();
+
     // actually normalize and write to output
+    float denom = sqrt(variance + EPS);
+
     for (int i = info.lane_id; i < NORM_SIZE; i += 32) {
         int offset_x = static_offsets[0] + i * NORM_STRIDES[0];
         int offset_y = static_offsets[1] + i * NORM_STRIDES[1];

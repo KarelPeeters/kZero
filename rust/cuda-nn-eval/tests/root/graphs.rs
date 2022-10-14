@@ -1,8 +1,8 @@
+use decorum::Total;
 use itertools::Itertools;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use decorum::Total;
 use nn_graph::graph::{BinaryOp, Graph, Operation, ReduceOp, SliceRange, UnaryOp, Value};
 use nn_graph::ndarray::Array1;
 use nn_graph::optimizer::optimize_graph;
@@ -854,6 +854,18 @@ fn layernorm_1d() {
     }
 
     test_all(&graph, 0, &inputs, None)
+}
+
+#[test]
+fn layernorm_2d() {
+    let mut graph = Graph::new();
+
+    let input = graph.input(shape![16, 32]);
+    let output = graph.layernorm(input, 1, 1e-5);
+    graph.output(output);
+
+    let mut rng = StdRng::seed_from_u64(0);
+    test_all(&graph, 0, &[rng_tensor((16, 32), &mut rng)], None)
 }
 
 #[test]
