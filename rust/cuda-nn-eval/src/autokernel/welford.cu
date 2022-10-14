@@ -30,9 +30,9 @@ struct Welford {
         int count = a.count + b.count;
         float delta = b.mean - a.mean;
 
-        float div_count = (count == 0) ? 1.0 : (float) count;
-        float mean = a.mean + delta * (float) b.count / div_count;
-        float m2 = a.m2 + b.m2 + delta * delta * (float) (a.count * b.count) / div_count;
+        float div_count = (count == 0) ? 1.0 : 1.0 / (float) count;
+        float mean = a.mean + delta * (float) b.count * div_count;
+        float m2 = a.m2 + b.m2 + delta * delta * (float) (a.count * b.count) * div_count;
 
         return Welford(count, mean, m2);
     }
