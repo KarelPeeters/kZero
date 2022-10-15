@@ -80,22 +80,29 @@ __global__ void layernorm_kernel(
 
     // reduce across blocks
     const int WARPS_PER_BLOCK = THREADS_PER_BLOCK / 32;
-    static_assert(WARPS_PER_BLOCK == 32, "WARPS_PER_BLOCK must be 32 (for now)");
+    static_assert(WARPS_PER_BLOCK <= 32, "There cannot be more than 32 warps");
+    static_assert(WARPS_PER_BLOCK >= 1, "There must be at least one full warp");
+    int lane = info.lane_id;
+    int warp = info.warp_id;
 
     __shared__ char wf_buffer_bytes[WARPS_PER_BLOCK * sizeof(Welford)];
     Welford *wf_buffer = (Welford *) wf_buffer_bytes;
 
-    int lane = info.lane_id;
-    int warp = info.warp_id;
-
     if (lane == 0) {
+        assert(warp < WARPS_PER_BLOCK);
         wf_buffer[warp] = wf_warp;
     }
     __syncthreads();
 
-    // let first warp do the actual reduction
+    // do the actual reduction on the first warp
     if (warp == 0) {
-        Welford wf_total = wf_warp_reduce(wf_buffer[lane]);
+        // pad with additional values if the buffer is not full-sized
+        Welford wf_tmp = Welford();
+        if (lane < WARPS_PER_BLOCK) {
+            wf_tmp = wf_buffer[lane];
+        }
+
+        Welford wf_total = wf_warp_reduce(wf_tmp);
 
         if (lane == 0) {
             wf_buffer[0] = wf_total;
