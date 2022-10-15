@@ -108,7 +108,7 @@ __device__ int flat_index_to_offset(
 const unsigned int FULL_WARP_MASK = 0xffffffff;
 
 // Reduce a value across all threads in a warp, towards the first thread.
-// To broadcast the value afterwards to all threads, use `__shfl_sync(FULL_WARP_MASK, value, 0)`.
+// To broadcast the value afterwards to all threads, use `warp_broadcast`.
 // see https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
 template<typename T, typename F>
 __device__ T warp_reduce(T value, F f) {
@@ -121,4 +121,9 @@ __device__ T warp_reduce(T value, F f) {
     }
 
     return result;
+}
+
+template<typename T>
+__device__ T warp_broadcast(T value) {
+    return __shfl_sync(FULL_WARP_MASK, value, 0);
 }

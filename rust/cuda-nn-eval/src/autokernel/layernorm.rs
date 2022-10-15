@@ -70,6 +70,7 @@ impl LayernormKernel {
 
         let replacements = vec![
             ("$THREADS_PER_BLOCK$", format!("{}", threads_per_block)),
+            ("$SINGLE_WARP_PER_BLOCK$", format!("{}", threads_per_block / 32 == 1)),
             ("$CACHE$", format!("{}", cache)),
             ("$RANK$", format!("{}", input_shape.rank())),
             ("$STATIC_SIZE$", format!("{}", static_size)),

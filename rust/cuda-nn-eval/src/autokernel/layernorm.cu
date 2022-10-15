@@ -3,8 +3,10 @@
 
 // de-dollar-ify template parameters
 #define CACHE $CACHE$
+#define SINGLE_WARP_PER_BLOCK $SINGLE_WARP_PER_BLOCK$
 
 const int THREADS_PER_BLOCK = $THREADS_PER_BLOCK$;
+const int WARPS_PER_BLOCK = THREADS_PER_BLOCK / 32;
 
 const int RANK = $RANK$;
 const int STATIC_SIZE = $STATIC_SIZE$;
@@ -29,8 +31,10 @@ __device__ float calculate_x(float *input0, float *input1, int offset_x) {
     return x;
 }
 
+// Reduce into warp lane zero from the entire warp.
 __device__ Welford wf_warp_reduce(Welford curr) {
     // TODO see if unrolling this is useful
+    // TODO skip loop iterations if there are fewer warps
     for (int offset = 16; offset > 0; offset /= 2) {
         Welford next = Welford(
                 __shfl_down_sync(FULL_WARP_MASK, curr.count, offset),
@@ -40,6 +44,15 @@ __device__ Welford wf_warp_reduce(Welford curr) {
         curr = curr.combine(next);
     }
     return curr;
+}
+
+// Broadcast from warp lane zero to the entire warp.
+__device__ Welford wf_broadcast(Welford wf) {
+    return Welford(
+            warp_broadcast(wf.count),
+            warp_broadcast(wf.mean),
+            warp_broadcast(wf.m2)
+    );
 }
 
 // TODO only do second reduction if there are actually multiple warps
@@ -79,9 +92,18 @@ __global__ void layernorm_kernel(
     Welford wf_warp = wf_warp_reduce(wf_thread);
 
     // reduce across blocks
-    const int WARPS_PER_BLOCK = THREADS_PER_BLOCK / 32;
     static_assert(WARPS_PER_BLOCK <= 32, "There cannot be more than 32 warps");
     static_assert(WARPS_PER_BLOCK >= 1, "There must be at least one full warp");
+
+    Welford wf_total;
+    static_assert(SINGLE_WARP_PER_BLOCK == (WARPS_PER_BLOCK == 1), "Single warp variables must match");
+
+#if SINGLE_WARP_PER_BLOCK
+    // TODO remove this special case once we're skipping loop iterations depending on warp count
+    // there is only a single warp, we don't actually need to reduce further
+    // just broadcast to all threads of the single warp
+    wf_total = wf_broadcast(wf_warp);
+#else
     int lane = info.lane_id;
     int warp = info.warp_id;
 
@@ -111,7 +133,9 @@ __global__ void layernorm_kernel(
     __syncthreads();
 
     // broadcast result to all threads
-    Welford wf_total = wf_buffer[0];
+    wf_total = wf_buffer[0];
+#endif
+
     float mean = wf_total.final_mean();
     float variance = wf_total.final_variance();
 
