@@ -841,19 +841,22 @@ fn softmax_single() {
 
 #[test]
 fn layernorm_1d() {
-    let mut graph = Graph::new();
-    let mut inputs = vec![];
-    let mut rng = StdRng::seed_from_u64(0);
+    let sizes = [1, 2, 8, 16, 32, 64, 128, 512, 1024, 2048, 4096, 7, 21, 300, 7000];
 
-    for size in [1, 2, 8, 16, 32, 64, 128, 512, 1024, 2048, 4096, 7, 21, 300, 7000] {
-        let input = graph.input(shape![size]);
+    let mut graph = Graph::new();
+
+    let max_size = sizes.iter().copied().max().unwrap();
+    let max_input = graph.input(shape![max_size]);
+
+    for size in sizes {
+        let input = graph.slice(max_input, 0, SliceRange::simple(0, size));
         let output = graph.layernorm(input, 0, 1e-5);
         graph.output(output);
-
-        inputs.push(rng_tensor(size, &mut rng));
     }
 
-    test_all(&graph, 0, &inputs, None)
+    let mut rng = StdRng::seed_from_u64(0);
+    let input_tensor = rng_tensor(max_size, &mut rng);
+    test_all(&graph, 0, &[input_tensor], None)
 }
 
 #[test]
