@@ -66,7 +66,7 @@ impl LayernormKernel {
         static_dense_strides.push(1);
 
         let blocks = static_size as u32;
-        let threads_per_block = 512;
+        let threads_per_block = 32 * 32;
 
         let replacements = vec![
             ("$THREADS_PER_BLOCK$", format!("{}", threads_per_block)),

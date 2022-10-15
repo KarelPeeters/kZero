@@ -5,8 +5,6 @@
 #define CACHE $CACHE$
 
 const int THREADS_PER_BLOCK = $THREADS_PER_BLOCK$;
-static_assert(is_power_of_two(THREADS_PER_BLOCK),
-"THREADS_PER_BLOCK must be a power of two");
 
 const int RANK = $RANK$;
 const int STATIC_SIZE = $STATIC_SIZE$;
@@ -31,10 +29,22 @@ __device__ float calculate_x(float *input0, float *input1, int offset_x) {
     return x;
 }
 
-// TODO add caching again for small enough sizes (and make sure it works for 64-bit addresses)
-// Every block handles a single layernorm group.
-// Uses Welford's algorithm to compute the mean and variance
-//   (see https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford%27s_online_algorithm).
+__device__ Welford wf_warp_reduce(Welford curr) {
+    // TODO see if unrolling this is useful
+    for (int offset = 16; offset > 0; offset /= 2) {
+        Welford next = Welford(
+                __shfl_down_sync(FULL_WARP_MASK, curr.count, offset),
+                __shfl_down_sync(FULL_WARP_MASK, curr.mean, offset),
+                __shfl_down_sync(FULL_WARP_MASK, curr.m2, offset)
+        );
+        curr = curr.combine(next);
+    }
+    return curr;
+}
+
+// TODO only do second reduction if there are actually multiple warps
+// TODO   more generally support different warp counts
+
 __global__ void layernorm_kernel(
         float *input0,
         float *input1,
@@ -55,7 +65,7 @@ __global__ void layernorm_kernel(
 #endif
 
     // calculate variance and mean per thread
-    for (int i = info.lane_id; i < NORM_SIZE; i += info.threads_per_block) {
+    for (int i = info.thread_id; i < NORM_SIZE; i += THREADS_PER_BLOCK) {
         int offset_x = static_offsets[0] + i * NORM_STRIDES[0];
         float x = calculate_x(input0, input1, offset_x);
 #if CACHE
@@ -64,36 +74,44 @@ __global__ void layernorm_kernel(
         wf_thread.append(x);
     }
 
-    // reduce variance and mean across the block
-    int tid = info.thread_id;
+    // reduce across warp
+    static_assert(THREADS_PER_BLOCK % 32 == 0, "THREADS_PER_BLOCK must be a multiple of 32");
+    Welford wf_warp = wf_warp_reduce(wf_thread);
 
-    __shared__ char wf_reduction_bytes[THREADS_PER_BLOCK * sizeof(Welford)];
-    Welford *wf_reduction = (Welford *) wf_reduction_bytes;
+    // reduce across blocks
+    const int WARPS_PER_BLOCK = THREADS_PER_BLOCK / 32;
+    static_assert(WARPS_PER_BLOCK == 32, "WARPS_PER_BLOCK must be 32 (for now)");
 
-    wf_reduction[tid] = wf_thread;
+    __shared__ char wf_buffer_bytes[WARPS_PER_BLOCK * sizeof(Welford)];
+    Welford *wf_buffer = (Welford *) wf_buffer_bytes;
+
+    int lane = info.lane_id;
+    int warp = info.warp_id;
+
+    if (lane == 0) {
+        wf_buffer[warp] = wf_warp;
+    }
     __syncthreads();
 
-    assert(is_power_of_two(info.threads_per_block));
-    for (int s = info.threads_per_block >> 1; s > 0; s >>= 1) {
-        Welford wf_new;
-        if (tid < s) {
-            wf_new = wf_reduction[tid].combine(wf_reduction[tid + s]);
-        }
-        __syncthreads();
-        if (tid < s) {
-            wf_reduction[tid] = wf_new;
-        }
-        __syncthreads();
-    }
+    // let first warp do the actual reduction
+    if (warp == 0) {
+        Welford wf_total = wf_warp_reduce(wf_buffer[lane]);
 
-    Welford wf_total = wf_reduction[0];
+        if (lane == 0) {
+            wf_buffer[0] = wf_total;
+        }
+    }
+    __syncthreads();
+
+    // broadcast result to all threads
+    Welford wf_total = wf_buffer[0];
     float mean = wf_total.final_mean();
     float variance = wf_total.final_variance();
 
     // actually normalize and write to output
     float denom = sqrt(variance + EPS);
 
-    for (int i = info.lane_id; i < NORM_SIZE; i += 32) {
+    for (int i = info.thread_id; i < NORM_SIZE; i += THREADS_PER_BLOCK) {
         int offset_x = static_offsets[0] + i * NORM_STRIDES[0];
         int offset_y = static_offsets[1] + i * NORM_STRIDES[1];
 

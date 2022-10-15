@@ -845,7 +845,7 @@ fn layernorm_1d() {
     let mut inputs = vec![];
     let mut rng = StdRng::seed_from_u64(0);
 
-    for size in [1, 2, 8, 16, 32, 64, 128, 512, 7, 21, 300] {
+    for size in [1, 2, 8, 16, 32, 64, 128, 512, 1024, 2048, 4096, 7, 21, 300, 7000] {
         let input = graph.input(shape![size]);
         let output = graph.layernorm(input, 0, 1e-5);
         graph.output(output);
