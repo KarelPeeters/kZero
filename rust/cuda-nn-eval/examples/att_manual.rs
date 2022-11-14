@@ -12,7 +12,7 @@ use cuda_nn_eval::tester::assert_tensors_match;
 use cuda_sys::wrapper::handle::{CudaStream, Device};
 use nn_graph::cpu::{cpu_eval_graph, Tensor};
 use nn_graph::graph::{BinaryOp, Graph};
-use nn_graph::ndarray::{s, ArcArray, Array1, Array2, Array3, Axis, Dimension, IntoDimension, NewAxis};
+use nn_graph::ndarray::{s, ArcArray, Array1, Array2, Array3, Axis, Dimension, IntoDimension};
 use nn_graph::optimizer::optimize_graph;
 use nn_graph::shape;
 use nn_graph::shape::Size;
@@ -28,7 +28,7 @@ fn main() {
     let data_v = rng_tensor((seq_len, batch_size, head_dim), &mut rng);
 
     // let graph = load_graph_from_onnx_path("ignored/att.onnx", false);
-    let graph = build_att_graph(head_dim, seq_len);
+    let graph = build_att_graph(head_dim, seq_len, false);
     let graph = optimize_graph(&graph, Default::default());
     println!("{}", graph);
 
@@ -95,19 +95,24 @@ fn flash_att_impl(
         let vj = global_v_shaped.slice(s![block_kv_j, .., ..]).to_owned();
 
         for block_qo_i in 0..block_count_qo {
+            // load inputs from global memory
             let qi = global_q_shaped.slice(s![block_qo_i, .., ..]).to_owned();
             let o_old = global_o_shaped.slice(s![block_qo_i, .., ..]).to_owned();
             let sum_old = global_sum_shaped.slice(s![block_qo_i, ..]).to_owned();
             let max_old = global_max_shaped.slice(s![block_qo_i, ..]).to_owned();
 
+            // compute all deltas and new values
             let logit_delta: Array2f = qi.dot(&kj.view().permuted_axes([1, 0]));
             let max_delta: Array1f = logit_delta.fold_axis(Axis(1), f32::NEG_INFINITY, fn_ref(f32::max));
-            let p_delta: Array2f = (logit_delta - max_delta.slice(s![.., NewAxis])).mapv(f32::exp);
+
+            let p_delta = Array2f::from_shape_fn((block_size_qo, block_size_kv), |(a, b)| {
+                (logit_delta[(a, b)] - max_delta[a]).exp()
+            });
             let sum_delta: Array1f = p_delta.fold_axis(Axis(1), 0.0, fn_ref(f32::add));
 
             let max_new: Array1f = Array1f::from_shape_fn(block_size_qo, |a| f32::max(max_old[a], max_delta[a]));
             let sum_new = Array1::from_shape_fn(block_size_qo, |a| {
-                (max_old[a] - max_new[a]).exp() * sum_old[a] + (max_delta[a] - max_new[a]) * sum_delta[a]
+                (max_old[a] - max_new[a]).exp() * sum_old[a] + (max_delta[a] - max_new[a]).exp() * sum_delta[a]
             });
 
             let o_delta = p_delta.dot(&vj);
@@ -125,7 +130,7 @@ fn flash_att_impl(
                 1.0 / sum_new * (sum_old * o_old_scaled + o_new_scaled)
             });
 
-            // TODO store new output
+            // store outputs to global memory
             global_o_shaped.slice_mut(s![block_qo_i, .., ..]).assign(&o_new);
 
             global_sum_shaped.slice_mut(s![block_qo_i, ..]).assign(&sum_new);
@@ -171,7 +176,7 @@ fn _derp_cuda(seq_len: usize, batch_size: usize, head_dim: usize) {
     println!("{:?}", kernel);
 }
 
-fn build_att_graph(d: usize, s: usize) -> Graph {
+fn build_att_graph(d: usize, s: usize, scaled: bool) -> Graph {
     let mut graph = Graph::new();
 
     let q = graph.input(shape![s, Size::BATCH, d]);
@@ -182,8 +187,14 @@ fn build_att_graph(d: usize, s: usize) -> Graph {
     let k_perm = graph.permute(k, vec![1, 2, 0]);
 
     let logits_raw = graph.batched_mat_mul(q_perm, k_perm);
-    let scale = graph.scalar(1.0 / (d as f32).sqrt());
-    let logits = graph.binary(BinaryOp::Mul, logits_raw, scale);
+
+    let logits = if scaled {
+        let scale = graph.scalar(1.0 / (d as f32).sqrt());
+        graph.binary(BinaryOp::Mul, logits_raw, scale)
+    } else {
+        logits_raw
+    };
+
     let weights = graph.softmax(logits, 2);
 
     let v_perm = graph.permute(v, vec![1, 0, 2]);
