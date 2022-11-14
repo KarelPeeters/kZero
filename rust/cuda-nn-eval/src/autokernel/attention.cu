@@ -34,8 +34,8 @@ __global__ void attention_kernel(
 
     assert(info.threads_per_block == B_QO * B_KV);
     // TODO also try transposing this
-    int thread_kv_j = info.thread_id / B_KV;
-    int thread_qo_i = info.thread_id % B_QO;
+    int thread_qo_i = info.thread_id / B_KV;
+    int thread_kv_j = info.thread_id % B_KV;
     bool is_first_q_thread = thread_kv_j == 0;
 
     // zero-initialize output and scratch
@@ -117,7 +117,8 @@ __global__ void attention_kernel(
 
             // compute new sum per query
             if (is_first_q_thread) {
-                float curr_sum = block_sum_old[thread_qo_i];
+                float scalar_old = expf(block_max_old[thread_qo_i] - block_max_new[thread_qo_i]);
+                float curr_sum = scalar_old * block_sum_old[thread_qo_i];
                 for (int j = 0; j < B_KV; j++) {
                     curr_sum += block_logits[thread_qo_i][j];
                 }
