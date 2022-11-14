@@ -7,6 +7,7 @@
 // TODO proper stride support
 // TODO properly implement reduce operations
 // TODO mask and scale
+// TODO more general bank conflict fix, this is basically hardcoded to D being a multiple of 32
 
 // de-dollar-ify template parameters
 const int S = $S$;
@@ -24,7 +25,10 @@ const int BC_KV = ceil_div(S, B_KV);
 const int SCRATCH_SIZE = $SCRATCH_SIZE$;
 static_assert(true && SCRATCH_SIZE == 2 * S, "Scratch size mismatch");
 
-__global__ void attention_kernel(
+// launch_bounds ensures the compiler doesn't use too many registers
+__global__ void __launch_bounds__(B_QO * B_KV)
+
+attention_kernel(
         float *global_q, float *global_k, float *global_v,
         float *global_o, float *scratch
 ) {
@@ -51,7 +55,7 @@ __global__ void attention_kernel(
 
     // local memory
     __shared__ float block_q[B_QO * D];
-    __shared__ float block_k[B_KV * D];
+    __shared__ float block_k[B_KV * (D + 1)];
     __shared__ float block_v[B_KV * D];
     __shared__ float block_o[B_QO * D];
     // TODO try fusing old/new to reduce shared mem usage
@@ -67,7 +71,8 @@ __global__ void attention_kernel(
         // load k, v
         for (int i = info.thread_id; i < B_KV * D; i += info.threads_per_block) {
             int offset = block_kv_j * B_KV * D;
-            block_k[i] = global_k[offset + i];
+            int pad_i = (i / D) * (D + 1) + (i % D);
+            block_k[pad_i] = global_k[offset + i];
             block_v[i] = global_v[offset + i];
         }
         __syncthreads();
@@ -93,7 +98,9 @@ __global__ void attention_kernel(
             {
                 float curr_logit = 0.0;
                 for (int d = 0; d < D; d++) {
-                    curr_logit += block_q[thread_qo_i * D + d] * block_k[thread_kv_j * D + d];
+                    float q_value = block_q[thread_qo_i * D + d]; // bank broadcast
+                    float k_value = block_k[thread_kv_j * (D + 1) + d]; // avoid bank conflict
+                    curr_logit += q_value * k_value;
                 }
                 block_logits[thread_qo_i][thread_kv_j] = curr_logit;
             }
