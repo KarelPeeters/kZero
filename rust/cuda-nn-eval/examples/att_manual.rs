@@ -12,7 +12,7 @@ use cuda_nn_eval::tester::assert_tensors_match;
 use cuda_sys::wrapper::handle::{CudaStream, Device};
 use nn_graph::cpu::{cpu_eval_graph, Tensor};
 use nn_graph::graph::{BinaryOp, Graph};
-use nn_graph::ndarray::{s, ArcArray, Array1, Array2, Array3, Axis, Dimension, IntoDimension};
+use nn_graph::ndarray::{s, ArcArray, Array, Array1, Array2, Array3, Axis, Dimension, IntoDimension};
 use nn_graph::optimizer::optimize_graph;
 use nn_graph::shape;
 use nn_graph::shape::Size;
@@ -21,6 +21,9 @@ fn main() {
     let head_dim = 8;
     let seq_len = 32;
     let batch_size = 1; // technically batch*heads
+
+    let block_size_qo = 32;
+    let block_size_kv = 32;
 
     let mut rng = SmallRng::seed_from_u64(0);
     let data_q = rng_tensor((seq_len, batch_size, head_dim), &mut rng);
@@ -36,10 +39,31 @@ fn main() {
     // let exec = CudaExecutor::new(device, &graph, batch_size);
     // println!("{:?}", exec);
 
-    let output_manual = flash_att_impl(&data_q, &data_k, &data_v, seq_len, batch_size, head_dim);
-    let cpu_output = cpu_eval_graph(&graph, batch_size, &[data_q, data_k, data_v]).remove(0);
+    let output_cpu = cpu_eval_graph(&graph, batch_size, &[data_q.clone(), data_k.clone(), data_v.clone()]).remove(0);
 
-    assert_tensors_match(&[cpu_output], &[output_manual], true);
+    let output_manual = flash_att_impl(
+        &data_q,
+        &data_k,
+        &data_v,
+        seq_len,
+        batch_size,
+        head_dim,
+        block_size_qo,
+        block_size_kv,
+    );
+    assert_tensors_match(&[output_cpu.clone()], &[output_manual], true);
+
+    let output_cuda = run_cuda_att(
+        &data_q,
+        &data_k,
+        &data_v,
+        seq_len,
+        batch_size,
+        head_dim,
+        block_size_qo,
+        block_size_kv,
+    );
+    assert_tensors_match(&[output_cpu.clone()], &[output_cuda], true);
 }
 
 type Array1f = Array1<f32>;
@@ -52,6 +76,8 @@ fn flash_att_impl(
     seq_len: usize,
     batch_size: usize,
     head_dim: usize,
+    block_size_qo: usize,
+    block_size_kv: usize,
 ) -> Tensor {
     assert_eq!(batch_size, 1);
     assert_eq!(global_q.shape(), &[seq_len, batch_size, head_dim]);
@@ -64,8 +90,6 @@ fn flash_att_impl(
     let mut global_sum = Array1::<f32>::zeros(seq_len);
     global_max.fill(f32::NEG_INFINITY);
 
-    let block_size_qo = 8;
-    let block_size_kv = 16;
     let block_count_qo = ceil_div(seq_len, block_size_qo);
     let block_count_kv = ceil_div(seq_len, block_size_kv);
 
@@ -111,11 +135,13 @@ fn flash_att_impl(
             let p_delta = Array2f::from_shape_fn((block_size_qo, block_size_kv), |(a, b)| {
                 (logit_delta[(a, b)] - max_new[a]).exp()
             });
-            let sum_delta: Array1f = p_delta.fold_axis(Axis(1), 0.0, fn_ref(f32::add));
+            drop(logit_delta);
 
+            let sum_delta: Array1f = p_delta.fold_axis(Axis(1), 0.0, fn_ref(f32::add));
             let sum_new = Array1::from_shape_fn(block_size_qo, |a| {
                 (max_old[a] - max_new[a]).exp() * sum_old[a] + sum_delta[a]
             });
+            drop(sum_delta);
 
             let o_delta = p_delta.dot(&vj);
             let o_new = Array2f::from_shape_fn((block_size_qo, head_dim), |(a, d)| {
@@ -126,9 +152,7 @@ fn flash_att_impl(
                 let sum_old = sum_old[a];
                 let sum_new = sum_new[a];
 
-                let o_old_scaled = (max_old - max_new).exp() * o_old;
-                let o_new_scaled = o_delta;
-                1.0 / sum_new * (sum_old * o_old_scaled + o_new_scaled)
+                1.0 / sum_new * (sum_old * (max_old - max_new).exp() * o_old + o_delta)
             });
 
             // store outputs to global memory
@@ -146,12 +170,22 @@ fn fn_ref<T: Copy>(f: impl Fn(T, T) -> T) -> impl Fn(&T, &T) -> T {
     move |&a, &b| f(a, b)
 }
 
-fn _derp_cuda(seq_len: usize, batch_size: usize, head_dim: usize) {
+fn run_cuda_att(
+    data_q: &Tensor,
+    data_k: &Tensor,
+    data_v: &Tensor,
+    seq_len: usize,
+    batch_size: usize,
+    head_dim: usize,
+    block_size_qo: usize,
+    block_size_kv: usize,
+) -> Tensor {
     let device = Device::new(0);
     let stream = CudaStream::new(device);
     // let exec = CudaExecutor::new(device, &graph, batch_size);
     // println!("{:?}", exec);
 
+    assert_eq!(batch_size, 1);
     let shape = vec![seq_len, batch_size, head_dim];
 
     let input_q = DeviceTensor::alloc_simple(device, shape.clone());
@@ -165,16 +199,29 @@ fn _derp_cuda(seq_len: usize, batch_size: usize, head_dim: usize) {
         input_k.strided_shape(),
         input_v.strided_shape(),
         output.strided_shape(),
+        block_size_qo,
+        block_size_kv,
     );
+    println!("{:?}", kernel);
 
     let scratch = DeviceTensor::alloc_simple(device, vec![kernel.scratch_size()]);
+    let mut data_output = Array::zeros((seq_len, batch_size, head_dim));
+    let mut data_scratch = Array1f::zeros(2 * seq_len);
 
     unsafe {
-        kernel.run(&stream, &input_q, &input_k, &input_v, &output, &scratch);
-    }
-    stream.synchronize();
+        input_q.copy_simple_from_host(data_q.as_slice().unwrap());
+        input_k.copy_simple_from_host(data_k.as_slice().unwrap());
+        input_v.copy_simple_from_host(data_v.as_slice().unwrap());
 
-    println!("{:?}", kernel);
+        stream.synchronize();
+        kernel.run(&stream, &input_q, &input_k, &input_v, &output, &scratch);
+        stream.synchronize();
+
+        output.copy_simple_to_host(data_output.as_slice_mut().unwrap());
+        scratch.copy_simple_to_host(data_scratch.as_slice_mut().unwrap());
+    }
+
+    data_output.into_dyn().into_shared()
 }
 
 fn build_att_graph(d: usize, s: usize, scaled: bool) -> Graph {
