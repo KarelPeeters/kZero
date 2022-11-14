@@ -17,7 +17,7 @@ const int B_QO = $B_QO$;
 const int B_KV = $B_KV$;
 
 // TODO relax this requirement?
-static_assert(true && (S % B_QO == 0) && S % B_KV == 0, "block sizes must divide S");
+static_assert(true && (S % B_QO == 0) && S % B_KV == 0 && D % B_KV == 0, "block sizes must divide S and D");
 const int BC_QO = ceil_div(S, B_QO);
 const int BC_KV = ceil_div(S, B_KV);
 
@@ -127,28 +127,20 @@ __global__ void attention_kernel(
             __syncthreads();
 
             // compute output
-            // TODO find a way to use more threads here
-            if (is_first_q_thread) {
-                int a = thread_qo_i;
-                float max_old = block_max_old[a];
-                float max_new = block_max_new[a];
-                float sum_old = block_sum_old[a];
-                float sum_new = block_sum_new[a];
+            // every thread calculates (D / B_KV) output values
+            static_assert(D % B_KV == 0, "B_KV must divide D");
 
-                float scale_old = sum_old * expf(max_old - max_new);
-                float scale_shared = 1.0f / sum_new;
+            float scale_old = block_sum_old[thread_qo_i]
+                              * expf(block_max_old[thread_qo_i] - block_max_new[thread_qo_i]);
+            float scale_shared = 1.0f / block_sum_new[thread_qo_i];
 
-                for (int d = 0; d < D; d++) {
-                    // compute Q @ K.T
-                    float o_delta_curr = 0.0;
-                    for (int j = 0; j < B_KV; j++) {
-                        o_delta_curr += block_logits[a][j] * block_v[j * D + d];
-                    }
-
-                    block_o[a * D + d] = scale_shared * (scale_old * block_o[a * D + d] + o_delta_curr);
+            for (int d = thread_kv_j; d < D; d += B_KV) {
+                float o_delta_curr = 0.0;
+                for (int j = 0; j < B_KV; j++) {
+                    o_delta_curr += block_logits[thread_qo_i][j] * block_v[j * D + d];
                 }
+                block_o[thread_qo_i * D + d] = scale_shared * (scale_old * block_o[thread_qo_i * D + d] + o_delta_curr);
             }
-
             __syncthreads();
 
             /* Store outputs */
