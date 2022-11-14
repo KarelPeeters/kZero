@@ -103,22 +103,23 @@ fn flash_att_impl(
 
             // compute all deltas and new values
             let logit_delta: Array2f = qi.dot(&kj.view().permuted_axes([1, 0]));
+
             let max_delta: Array1f = logit_delta.fold_axis(Axis(1), f32::NEG_INFINITY, fn_ref(f32::max));
+            let max_new: Array1f = Array1f::from_shape_fn(block_size_qo, |a| f32::max(max_old[a], max_delta[a]));
+            drop(max_delta);
 
             let p_delta = Array2f::from_shape_fn((block_size_qo, block_size_kv), |(a, b)| {
-                (logit_delta[(a, b)] - max_delta[a]).exp()
+                (logit_delta[(a, b)] - max_new[a]).exp()
             });
             let sum_delta: Array1f = p_delta.fold_axis(Axis(1), 0.0, fn_ref(f32::add));
 
-            let max_new: Array1f = Array1f::from_shape_fn(block_size_qo, |a| f32::max(max_old[a], max_delta[a]));
             let sum_new = Array1::from_shape_fn(block_size_qo, |a| {
-                (max_old[a] - max_new[a]).exp() * sum_old[a] + (max_delta[a] - max_new[a]).exp() * sum_delta[a]
+                (max_old[a] - max_new[a]).exp() * sum_old[a] + sum_delta[a]
             });
 
             let o_delta = p_delta.dot(&vj);
             let o_new = Array2f::from_shape_fn((block_size_qo, head_dim), |(a, d)| {
                 let max_old = max_old[a];
-                let max_delta = max_delta[a];
                 let max_new = max_new[a];
                 let o_old = o_old[(a, d)];
                 let o_delta = o_delta[(a, d)];
@@ -126,7 +127,7 @@ fn flash_att_impl(
                 let sum_new = sum_new[a];
 
                 let o_old_scaled = (max_old - max_new).exp() * o_old;
-                let o_new_scaled = (max_delta - max_new).exp() * o_delta;
+                let o_new_scaled = o_delta;
                 1.0 / sum_new * (sum_old * o_old_scaled + o_new_scaled)
             });
 
