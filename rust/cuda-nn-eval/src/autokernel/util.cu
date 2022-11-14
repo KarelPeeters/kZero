@@ -2,6 +2,22 @@ constexpr __device__ int ceil_div(int x, int y) {
     return (x + y - 1) / y;
 }
 
+// TODO mark these as constexpr again, find const clz alternative
+// Returns the highest power of two y such that `y <= x`.
+__device__ int prev_pow2(int x) {
+    return 1 << (sizeof(int) * 8 - __clz(x) - 1);
+}
+
+// Returns the lowers power of two y such that `x <= y`.
+__device__ int next_pow2(int x) {
+    // special case if x is already a power of two
+    if ((x & (x - 1)) == 0) {
+        return x;
+    }
+
+    return 1 << (sizeof(int) * 8 - __clz(x));
+}
+
 struct KernelInfo {
     int block_count;
     int threads_per_block;
