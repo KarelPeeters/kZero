@@ -8,6 +8,7 @@ use rand_distr::StandardNormal;
 
 use cuda_nn_eval::autokernel::attention::AttentionKernel;
 use cuda_nn_eval::device_tensor::DeviceTensor;
+use cuda_nn_eval::executor::CudaExecutor;
 use cuda_nn_eval::tester::assert_tensors_match;
 use cuda_sys::wrapper::handle::{CudaStream, Device};
 use nn_graph::cpu::{cpu_eval_graph, Tensor};
@@ -18,14 +19,17 @@ use nn_graph::shape;
 use nn_graph::shape::Size;
 
 fn main() {
-    let head_dim = 8;
-    let seq_len = 32;
+    let head_dim = 64;
+    let seq_len = 4 * 1024;
     let batch_size = 1; // technically batch*heads
 
     let block_size_qo = 32;
     let block_size_kv = 32;
 
-    let mut rng = SmallRng::seed_from_u64(0);
+    let run_cpu = false;
+    let run_exec = true;
+
+    let mut rng = SmallRng::seed_from_u64(4);
     let data_q = rng_tensor((seq_len, batch_size, head_dim), &mut rng);
     let data_k = rng_tensor((seq_len, batch_size, head_dim), &mut rng) / (head_dim as f32).sqrt();
     let data_v = rng_tensor((seq_len, batch_size, head_dim), &mut rng);
@@ -35,24 +39,50 @@ fn main() {
     let graph = optimize_graph(&graph, Default::default());
     println!("{}", graph);
 
-    // let device = Device::new(0);
-    // let exec = CudaExecutor::new(device, &graph, batch_size);
-    // println!("{:?}", exec);
+    let output_expected = if run_cpu {
+        println!("Running CPU graph");
+        let output_expected =
+            cpu_eval_graph(&graph, batch_size, &[data_q.clone(), data_k.clone(), data_v.clone()]).remove(0);
 
-    let output_cpu = cpu_eval_graph(&graph, batch_size, &[data_q.clone(), data_k.clone(), data_v.clone()]).remove(0);
+        println!("Running CPU flash");
+        let output_manual = flash_att_impl(
+            &data_q,
+            &data_k,
+            &data_v,
+            seq_len,
+            batch_size,
+            head_dim,
+            block_size_qo,
+            block_size_kv,
+        );
+        assert_tensors_match(&[output_expected.clone()], &[output_manual], true);
 
-    let output_manual = flash_att_impl(
-        &data_q,
-        &data_k,
-        &data_v,
-        seq_len,
-        batch_size,
-        head_dim,
-        block_size_qo,
-        block_size_kv,
-    );
-    assert_tensors_match(&[output_cpu.clone()], &[output_manual], true);
+        Some(output_expected)
+    } else {
+        None
+    };
 
+    if run_exec {
+        println!("Running GPU graph");
+        let device = Device::new(0);
+        let mut exec = CudaExecutor::new(device, &graph, batch_size);
+        println!("{:?}", exec);
+
+        // warmup
+        exec.evaluate_tensors(&[data_q.clone(), data_k.clone(), data_v.clone()]);
+
+        exec.set_profile(true);
+        let output_gpu = exec
+            .evaluate_tensors(&[data_q.clone(), data_k.clone(), data_v.clone()])
+            .remove(0);
+        println!("{}", exec.last_profile().unwrap());
+
+        if let Some(output_expected) = output_expected.clone() {
+            assert_tensors_match(&[output_expected.clone()], &[output_gpu.clone()], true);
+        }
+    }
+
+    println!("Running CUDA flash");
     let output_cuda = run_cuda_att(
         &data_q,
         &data_k,
@@ -63,7 +93,9 @@ fn main() {
         block_size_qo,
         block_size_kv,
     );
-    assert_tensors_match(&[output_cpu.clone()], &[output_cuda], true);
+    if let Some(output_expected) = output_expected {
+        assert_tensors_match(&[output_expected.clone()], &[output_cuda], true);
+    }
 }
 
 type Array1f = Array1<f32>;
@@ -216,6 +248,16 @@ fn run_cuda_att(
         stream.synchronize();
         kernel.run(&stream, &input_q, &input_k, &input_v, &output, &scratch);
         stream.synchronize();
+
+        let start = stream.record_event();
+        let iterations = 2;
+        for _ in 0..iterations {
+            kernel.run(&stream, &input_q, &input_k, &input_v, &output, &scratch);
+        }
+        let end = stream.record_event();
+        stream.synchronize();
+
+        println!("Kernel took {}s", end.time_elapsed_since(&start) / iterations as f32);
 
         output.copy_simple_to_host(data_output.as_slice_mut().unwrap());
         scratch.copy_simple_to_host(data_scratch.as_slice_mut().unwrap());
