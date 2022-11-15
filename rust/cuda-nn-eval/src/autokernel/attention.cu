@@ -106,6 +106,10 @@ attention_kernel(
             }
             __syncthreads();
 
+            // TODO after this point block_q is never used again, we could store other stuff in there
+            // TODO check similar things for other shared memory blocks
+            //    => the goal is to fit more blocks on a SM for when we add batching/multiple heads
+
             // compute new max per query
             if (is_first_q_thread) {
                 float curr_max = block_max_old[thread_qo_i];
