@@ -20,13 +20,17 @@ const int D_QK = $D_QK$;
 const int D_VO = $D_VO$;
 
 // block size
+const int G_QO = $G_QO$;
 const int B_QO = $B_QO$;
 const int B_KV = $B_KV$;
 
 // TODO relax this requirement?
-static_assert(true && (S_QO % B_QO == 0) && (S_KV % B_KV == 0), "Block sizes must divide their sequence length");
+static_assert(true && (S_QO % G_QO == 0) && (G_QO % B_QO == 0), "S_QO blocks must divide it");
+static_assert(true && (S_KV % B_KV == 0), "S_KV block size must divide it");
 static_assert(true && (D_VO % B_KV == 0), "B_KV must divide D_VO");
-const int BC_QO = ceil_div(S_QO, B_QO);
+
+const int GC_QO = ceil_div(S_QO, G_QO);
+const int BC_QO = ceil_div(G_QO, B_QO);
 const int BC_KV = ceil_div(S_KV, B_KV);
 
 const int SCRATCH_SIZE = $SCRATCH_SIZE$;
@@ -41,17 +45,24 @@ __device__ void attention_kernel_inner(
     float *global_max = scratch;
     float *global_sum = scratch + S_QO;
 
+    assert(info.block_count == GC_QO);
     assert(info.threads_per_block == B_QO * B_KV);
-    // TODO also try transposing this
     int thread_qo_i = info.thread_id / B_KV;
     int thread_kv_j = info.thread_id % B_KV;
     bool is_first_q_thread = thread_kv_j == 0;
 
+    // offset operands
+    int g_qo_offset = info.block_id * G_QO;
+    global_q += g_qo_offset * D_QK;
+    global_o += g_qo_offset * D_VO;
+    global_max += g_qo_offset;
+    global_sum += g_qo_offset;
+
     // zero-initialize output and scratch
-    for (int i = info.thread_id; i < S_QO * D_VO; i += info.threads_per_block) {
+    for (int i = info.thread_id; i < G_QO * D_VO; i += info.threads_per_block) {
         global_o[i] = 0.0;
     }
-    for (int i = info.thread_id; i < S_QO; i += info.threads_per_block) {
+    for (int i = info.thread_id; i < G_QO; i += info.threads_per_block) {
         global_max[i] = -1.0 / 0.0;
         global_sum[i] = 0.0;
     }

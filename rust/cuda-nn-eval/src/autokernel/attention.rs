@@ -33,6 +33,7 @@ impl AttentionKernel {
         k_shape: &StridedShape,
         v_shape: &StridedShape,
         o_shape: &StridedShape,
+        grid_size_qo: usize,
         block_size_qo: usize,
         block_size_kv: usize,
     ) -> Self {
@@ -47,11 +48,15 @@ impl AttentionKernel {
         // TODO add batch size to scratch (and everything else ofc)
         let scratch_size = 2 * shapes.s_qo;
 
+        assert!(shapes.s_qo % grid_size_qo == 0 && grid_size_qo % block_size_qo == 0);
+        let grid_dim = shapes.s_qo / grid_size_qo;
+
         let replacements = vec![
             ("$S_QO$", format!("{}", shapes.s_qo)),
             ("$S_KV$", format!("{}", shapes.s_kv)),
             ("$D_QK$", format!("{}", shapes.d_qk)),
             ("$D_VO$", format!("{}", shapes.d_vo)),
+            ("$G_QO$", format!("{}", grid_size_qo)),
             ("$B_QO$", format!("{}", block_size_qo)),
             ("$B_KV$", format!("{}", block_size_kv)),
             ("$SCRATCH_SIZE$", format!("{}", scratch_size)),
@@ -71,7 +76,7 @@ impl AttentionKernel {
             k_shape: k_shape.clone(),
             v_shape: v_shape.clone(),
             o_shape: o_shape.clone(),
-            grid_dim: 1,
+            grid_dim: grid_dim as u32,
             block_dim: (block_size_qo * block_size_kv) as u32,
             scratch_size,
             function,

@@ -27,11 +27,12 @@ fn main() {
         d_vo: 64,
     };
 
+    let grid_size_qo = shape.s_qo / 64;
     let block_size_qo = 32;
     let block_size_kv = 32;
 
-    let run_cpu = true;
-    let run_exec = true;
+    let run_cpu = false;
+    let run_exec = false;
 
     let mut rng = SmallRng::seed_from_u64(4);
     let data_q = rng_tensor((shape.s_qo, shape.b, shape.d_qk), &mut rng);
@@ -78,7 +79,15 @@ fn main() {
     }
 
     println!("Running CUDA flash");
-    let output_cuda = run_cuda_att(shape, block_size_qo, block_size_kv, &data_q, &data_k, &data_v);
+    let output_cuda = run_cuda_att(
+        shape,
+        grid_size_qo,
+        block_size_qo,
+        block_size_kv,
+        &data_q,
+        &data_k,
+        &data_v,
+    );
     if let Some(output_expected) = output_expected {
         assert_tensors_match(&[output_expected.clone()], &[output_cuda], true);
     }
@@ -184,6 +193,7 @@ fn fn_ref<T: Copy>(f: impl Fn(T, T) -> T) -> impl Fn(&T, &T) -> T {
 
 fn run_cuda_att(
     shape: AttShape,
+    grid_size_qo: usize,
     block_size_qo: usize,
     block_size_kv: usize,
     data_q: &Tensor,
@@ -207,6 +217,7 @@ fn run_cuda_att(
         input_k.strided_shape(),
         input_v.strided_shape(),
         output.strided_shape(),
+        grid_size_qo,
         block_size_qo,
         block_size_kv,
     );
@@ -226,7 +237,7 @@ fn run_cuda_att(
         stream.synchronize();
 
         let start = stream.record_event();
-        let iterations = 2;
+        let iterations = 10;
         for _ in 0..iterations {
             kernel.run(&stream, &input_q, &input_k, &input_v, &output, &scratch);
         }
