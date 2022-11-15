@@ -41,20 +41,17 @@ impl AttentionKernel {
         assert!(v_shape.has_simple_strides());
         assert!(o_shape.has_simple_strides());
         let shapes = check_shapes(q_shape, k_shape, v_shape, o_shape);
-        assert_eq!(shapes.d_qk, shapes.d_v);
         assert_eq!(shapes.b, 1);
-        assert_eq!(shapes.s_q, shapes.s_kv);
-
-        let d = shapes.d_qk;
-        let s = shapes.s_q;
 
         // TODO properly compute block sizes, taking memory limits into account
         // TODO add batch size to scratch (and everything else ofc)
-        let scratch_size = 2 * s;
+        let scratch_size = 2 * shapes.s_qo;
 
         let replacements = vec![
-            ("$S$", format!("{}", s)),
-            ("$D$", format!("{}", d)),
+            ("$S_QO$", format!("{}", shapes.s_qo)),
+            ("$S_KV$", format!("{}", shapes.s_kv)),
+            ("$D_QK$", format!("{}", shapes.d_qk)),
+            ("$D_VO$", format!("{}", shapes.d_vo)),
             ("$B_QO$", format!("{}", block_size_qo)),
             ("$B_KV$", format!("{}", block_size_kv)),
             ("$SCRATCH_SIZE$", format!("{}", scratch_size)),
@@ -118,12 +115,12 @@ impl AttentionKernel {
 }
 
 #[derive(Debug, Copy, Clone)]
-struct AttShapes {
-    b: usize,
-    s_q: usize,
-    s_kv: usize,
-    d_qk: usize,
-    d_v: usize,
+pub struct AttShape {
+    pub b: usize,
+    pub s_qo: usize,
+    pub s_kv: usize,
+    pub d_qk: usize,
+    pub d_vo: usize,
 }
 
 fn check_shapes(
@@ -131,22 +128,22 @@ fn check_shapes(
     k_shape: &StridedShape,
     v_shape: &StridedShape,
     o_shape: &StridedShape,
-) -> AttShapes {
-    let (s_q_0, b_0, d_qk_0) = unwrap_3(q_shape.shape());
+) -> AttShape {
+    let (s_qo_0, b_0, d_qk_0) = unwrap_3(q_shape.shape());
     let (s_kv_0, b_1, d_qk_1) = unwrap_3(k_shape.shape());
-    let (s_kv_1, b_2, d_v_0) = unwrap_3(v_shape.shape());
-    let (s_q_1, b_3, d_v_1) = unwrap_3(o_shape.shape());
+    let (s_kv_1, b_2, d_v0_0) = unwrap_3(v_shape.shape());
+    let (s_qo_1, b_3, d_v0_1) = unwrap_3(o_shape.shape());
 
     assert!(b_0 == b_1 && b_1 == b_2 && b_2 == b_3);
-    assert!(s_q_0 == s_q_1 && s_kv_0 == s_kv_1);
-    assert!(d_qk_0 == d_qk_1 && d_v_0 == d_v_1);
+    assert!(s_qo_0 == s_qo_1 && s_kv_0 == s_kv_1);
+    assert!(d_qk_0 == d_qk_1 && d_v0_0 == d_v0_1);
 
-    AttShapes {
+    AttShape {
         b: b_0,
-        s_q: s_q_0,
+        s_qo: s_qo_0,
         s_kv: s_kv_0,
         d_qk: d_qk_0,
-        d_v: d_v_0,
+        d_vo: d_v0_0,
     }
 }
 

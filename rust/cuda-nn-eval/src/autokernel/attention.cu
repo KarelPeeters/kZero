@@ -10,31 +10,36 @@
 // TODO more general bank conflict fix, this is basically hardcoded to D being a multiple of 32
 
 // de-dollar-ify template parameters
-const int S = $S$;
-const int D = $D$;
 
-// block sizes
+// sequence length
+const int S_QO = $S_QO$;
+const int S_KV = $S_KV$;
+
+// data size
+const int D_QK = $D_QK$;
+const int D_VO = $D_VO$;
+
+// block size
 const int B_QO = $B_QO$;
 const int B_KV = $B_KV$;
 
 // TODO relax this requirement?
-static_assert(true && (S % B_QO == 0) && S % B_KV == 0 && D % B_KV == 0, "block sizes must divide S and D");
-const int BC_QO = ceil_div(S, B_QO);
-const int BC_KV = ceil_div(S, B_KV);
+static_assert(true && (S_QO % B_QO == 0) && (S_KV % B_KV == 0), "Block sizes must divide their sequence length");
+static_assert(true && (D_VO % B_KV == 0), "B_KV must divide D_VO");
+const int BC_QO = ceil_div(S_QO, B_QO);
+const int BC_KV = ceil_div(S_KV, B_KV);
 
 const int SCRATCH_SIZE = $SCRATCH_SIZE$;
-static_assert(true && SCRATCH_SIZE == 2 * S, "Scratch size mismatch");
+static_assert(true && SCRATCH_SIZE == 2 * S_QO, "Scratch size mismatch");
 
-// launch_bounds ensures the compiler doesn't use too many registers
-__global__ void __launch_bounds__(B_QO * B_KV)
-
-attention_kernel(
+// this is not a top-level function because the IDE can't deal with the __launch_bounds__ it would require
+__device__ void attention_kernel_inner(
         float *global_q, float *global_k, float *global_v,
         float *global_o, float *scratch
 ) {
     KernelInfo info = kernel_info();
     float *global_max = scratch;
-    float *global_sum = scratch + S;
+    float *global_sum = scratch + S_QO;
 
     assert(info.threads_per_block == B_QO * B_KV);
     // TODO also try transposing this
@@ -43,10 +48,10 @@ attention_kernel(
     bool is_first_q_thread = thread_kv_j == 0;
 
     // zero-initialize output and scratch
-    for (int i = info.thread_id; i < S * D; i += info.threads_per_block) {
+    for (int i = info.thread_id; i < S_QO * D_VO; i += info.threads_per_block) {
         global_o[i] = 0.0;
     }
-    for (int i = info.thread_id; i < S; i += info.threads_per_block) {
+    for (int i = info.thread_id; i < S_QO; i += info.threads_per_block) {
         global_max[i] = -1.0 / 0.0;
         global_sum[i] = 0.0;
     }
@@ -54,10 +59,10 @@ attention_kernel(
     __syncthreads();
 
     // local memory
-    __shared__ float block_q[B_QO * D];
-    __shared__ float block_k[B_KV * (D + 1)];
-    __shared__ float block_v[B_KV * D];
-    __shared__ float block_o[B_QO * D];
+    __shared__ float block_q[B_QO * D_QK];
+    __shared__ float block_k[B_KV * (D_QK + 1)];
+    __shared__ float block_v[B_KV * D_VO];
+    __shared__ float block_o[B_QO * D_VO];
     // TODO try fusing old/new to reduce shared mem usage
     __shared__ float block_max_old[B_QO];
     __shared__ float block_max_new[B_QO];
@@ -69,19 +74,27 @@ attention_kernel(
     for (int block_kv_j = 0; block_kv_j < BC_KV; block_kv_j++) {
         /* Load inputs */
         // load k, v
-        for (int i = info.thread_id; i < B_KV * D; i += info.threads_per_block) {
-            int offset = block_kv_j * B_KV * D;
-            int pad_i = (i / D) * (D + 1) + (i % D);
+        // TODO merge loops if D_QK == D_VO?
+        for (int i = info.thread_id; i < B_KV * D_QK; i += info.threads_per_block) {
+            int offset = block_kv_j * B_KV * D_QK;
+            int pad_i = (i / D_QK) * (D_QK + 1) + (i % D_QK);
             block_k[pad_i] = global_k[offset + i];
+        }
+        for (int i = info.thread_id; i < B_KV * D_VO; i += info.threads_per_block) {
+            int offset = block_kv_j * B_KV * D_VO;
             block_v[i] = global_v[offset + i];
         }
         __syncthreads();
 
         for (int block_qo_i = 0; block_qo_i < BC_QO; block_qo_i++) {
             // load q, o
-            for (int i = info.thread_id; i < B_QO * D; i += info.threads_per_block) {
-                int offset = block_qo_i * B_QO * D;
+            // TODO merge loops if D_QK == D_VO?
+            for (int i = info.thread_id; i < B_QO * D_QK; i += info.threads_per_block) {
+                int offset = block_qo_i * B_QO * D_QK;
                 block_q[i] = global_q[offset + i];
+            }
+            for (int i = info.thread_id; i < B_QO * D_VO; i += info.threads_per_block) {
+                int offset = block_qo_i * B_QO * D_VO;
                 block_o[i] = global_o[offset + i];
             }
 
@@ -97,9 +110,9 @@ attention_kernel(
             // compute logits, each thread does one row/col dot product
             {
                 float curr_logit = 0.0;
-                for (int d = 0; d < D; d++) {
-                    float q_value = block_q[thread_qo_i * D + d]; // bank broadcast
-                    float k_value = block_k[thread_kv_j * (D + 1) + d]; // avoid bank conflict
+                for (int d = 0; d < D_QK; d++) {
+                    float q_value = block_q[thread_qo_i * D_QK + d]; // bank broadcast
+                    float k_value = block_k[thread_kv_j * (D_QK + 1) + d]; // avoid bank conflict
                     curr_logit += q_value * k_value;
                 }
                 block_logits[thread_qo_i][thread_kv_j] = curr_logit;
@@ -138,26 +151,27 @@ attention_kernel(
             __syncthreads();
 
             // compute output
-            // every thread calculates (D / B_KV) output values
-            static_assert(D % B_KV == 0, "B_KV must divide D");
+            // every thread calculates (D_VO / B_KV) output values
+            static_assert(true && (D_VO % B_KV == 0), "B_KV must divide D_VO");
 
             float scale_old = block_sum_old[thread_qo_i]
                               * expf(block_max_old[thread_qo_i] - block_max_new[thread_qo_i]);
             float scale_shared = 1.0f / block_sum_new[thread_qo_i];
 
-            for (int d = thread_kv_j; d < D; d += B_KV) {
+            for (int d = thread_kv_j; d < D_VO; d += B_KV) {
                 float o_delta_curr = 0.0;
                 for (int j = 0; j < B_KV; j++) {
-                    o_delta_curr += block_logits[thread_qo_i][j] * block_v[j * D + d];
+                    o_delta_curr += block_logits[thread_qo_i][j] * block_v[j * D_VO + d];
                 }
-                block_o[thread_qo_i * D + d] = scale_shared * (scale_old * block_o[thread_qo_i * D + d] + o_delta_curr);
+                block_o[thread_qo_i * D_VO + d] =
+                        scale_shared * (scale_old * block_o[thread_qo_i * D_VO + d] + o_delta_curr);
             }
             __syncthreads();
 
             /* Store outputs */
             // store o
-            for (int i = info.thread_id; i < B_QO * D; i += info.threads_per_block) {
-                int offset = block_qo_i * B_QO * D;
+            for (int i = info.thread_id; i < B_QO * D_VO; i += info.threads_per_block) {
+                int offset = block_qo_i * B_QO * D_VO;
                 global_o[offset + i] = block_o[i];
             }
 
@@ -171,4 +185,14 @@ attention_kernel(
             __syncthreads();
         }
     }
+}
+
+// launch_bounds ensures the compiler doesn't use too many registers
+__global__ void __launch_bounds__(B_QO * B_KV)
+
+attention_kernel(
+        float *global_q, float *global_k, float *global_v,
+        float *global_o, float *scratch
+) {
+    attention_kernel_inner(global_q, global_k, global_v, global_o, scratch);
 }

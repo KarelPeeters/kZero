@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng};
 use rand_distr::Distribution;
 use rand_distr::StandardNormal;
 
-use cuda_nn_eval::autokernel::attention::AttentionKernel;
+use cuda_nn_eval::autokernel::attention::{AttShape, AttentionKernel};
 use cuda_nn_eval::device_tensor::DeviceTensor;
 use cuda_nn_eval::executor::CudaExecutor;
 use cuda_nn_eval::tester::assert_tensors_match;
@@ -19,42 +19,37 @@ use nn_graph::shape;
 use nn_graph::shape::Size;
 
 fn main() {
-    let head_dim = 64;
-    let seq_len = 4 * 1024;
-    let batch_size = 1; // technically batch*heads
+    let shape = AttShape {
+        b: 1,
+        s_qo: 2 * 1024,
+        s_kv: 2 * 1024,
+        d_qk: 64,
+        d_vo: 64,
+    };
 
     let block_size_qo = 32;
     let block_size_kv = 32;
 
-    let run_cpu = false;
+    let run_cpu = true;
     let run_exec = true;
 
     let mut rng = SmallRng::seed_from_u64(4);
-    let data_q = rng_tensor((seq_len, batch_size, head_dim), &mut rng);
-    let data_k = rng_tensor((seq_len, batch_size, head_dim), &mut rng) / (head_dim as f32).sqrt();
-    let data_v = rng_tensor((seq_len, batch_size, head_dim), &mut rng);
+    let data_q = rng_tensor((shape.s_qo, shape.b, shape.d_qk), &mut rng);
+    let data_k = rng_tensor((shape.s_kv, shape.b, shape.d_qk), &mut rng) / (shape.d_qk as f32).sqrt();
+    let data_v = rng_tensor((shape.s_kv, shape.b, shape.d_vo), &mut rng);
 
     // let graph = load_graph_from_onnx_path("ignored/att.onnx", false);
-    let graph = build_att_graph(head_dim, seq_len, false);
+    let graph = build_att_graph(shape, false);
     let graph = optimize_graph(&graph, Default::default());
     println!("{}", graph);
 
     let output_expected = if run_cpu {
         println!("Running CPU graph");
         let output_expected =
-            cpu_eval_graph(&graph, batch_size, &[data_q.clone(), data_k.clone(), data_v.clone()]).remove(0);
+            cpu_eval_graph(&graph, shape.b, &[data_q.clone(), data_k.clone(), data_v.clone()]).remove(0);
 
         println!("Running CPU flash");
-        let output_manual = flash_att_impl(
-            &data_q,
-            &data_k,
-            &data_v,
-            seq_len,
-            batch_size,
-            head_dim,
-            block_size_qo,
-            block_size_kv,
-        );
+        let output_manual = flash_att_impl(shape, block_size_qo, block_size_kv, &data_q, &data_k, &data_v);
         assert_tensors_match(&[output_expected.clone()], &[output_manual], true);
 
         Some(output_expected)
@@ -65,7 +60,7 @@ fn main() {
     if run_exec {
         println!("Running GPU graph");
         let device = Device::new(0);
-        let mut exec = CudaExecutor::new(device, &graph, batch_size);
+        let mut exec = CudaExecutor::new(device, &graph, shape.b);
         println!("{:?}", exec);
 
         // warmup
@@ -83,16 +78,7 @@ fn main() {
     }
 
     println!("Running CUDA flash");
-    let output_cuda = run_cuda_att(
-        &data_q,
-        &data_k,
-        &data_v,
-        seq_len,
-        batch_size,
-        head_dim,
-        block_size_qo,
-        block_size_kv,
-    );
+    let output_cuda = run_cuda_att(shape, block_size_qo, block_size_kv, &data_q, &data_k, &data_v);
     if let Some(output_expected) = output_expected {
         assert_tensors_match(&[output_expected.clone()], &[output_cuda], true);
     }
@@ -102,35 +88,32 @@ type Array1f = Array1<f32>;
 type Array2f = Array2<f32>;
 
 fn flash_att_impl(
+    shape: AttShape,
+    block_size_qo: usize,
+    block_size_kv: usize,
     global_q: &Tensor,
     global_k: &Tensor,
     global_v: &Tensor,
-    seq_len: usize,
-    batch_size: usize,
-    head_dim: usize,
-    block_size_qo: usize,
-    block_size_kv: usize,
 ) -> Tensor {
-    assert_eq!(batch_size, 1);
-    assert_eq!(global_q.shape(), &[seq_len, batch_size, head_dim]);
-    assert_eq!(global_k.shape(), &[seq_len, batch_size, head_dim]);
-    assert_eq!(global_v.shape(), &[seq_len, batch_size, head_dim]);
+    assert_eq!(shape.b, 1);
 
     // zero/inf init is important
-    let mut global_o = Array3::<f32>::zeros((seq_len, 1, head_dim));
-    let mut global_max = Array1::<f32>::zeros(seq_len);
-    let mut global_sum = Array1::<f32>::zeros(seq_len);
+    let mut global_o = Array3::<f32>::zeros((shape.s_qo, 1, shape.d_vo));
+    let mut global_max = Array1::<f32>::zeros(shape.s_qo);
+    let mut global_sum = Array1::<f32>::zeros(shape.s_qo);
     global_max.fill(f32::NEG_INFINITY);
 
-    let block_count_qo = ceil_div(seq_len, block_size_qo);
-    let block_count_kv = ceil_div(seq_len, block_size_kv);
+    // TODO relax this later
+    assert!(shape.s_qo % block_size_qo == 0 && shape.s_kv % block_size_kv == 0);
+    let block_count_qo = ceil_div(shape.s_qo, block_size_qo);
+    let block_count_kv = ceil_div(shape.s_kv, block_size_kv);
 
-    let global_k_shaped = global_k.reshape((block_count_kv, block_size_kv, head_dim));
-    let global_q_shaped = global_q.reshape((block_count_qo, block_size_qo, head_dim));
-    let global_v_shaped = global_v.reshape((block_count_kv, block_size_kv, head_dim));
+    let global_k_shaped = global_k.reshape((block_count_kv, block_size_kv, shape.d_qk));
+    let global_q_shaped = global_q.reshape((block_count_qo, block_size_qo, shape.d_qk));
+    let global_v_shaped = global_v.reshape((block_count_kv, block_size_kv, shape.d_vo));
     let mut global_o_shaped = global_o
         .view_mut()
-        .into_shape((block_count_qo, block_size_qo, head_dim))
+        .into_shape((block_count_qo, block_size_qo, shape.d_vo))
         .unwrap();
     let mut global_max_shaped = global_max
         .view_mut()
@@ -140,9 +123,6 @@ fn flash_att_impl(
         .view_mut()
         .into_shape((block_count_qo, block_size_qo))
         .unwrap();
-
-    // TODO relax this later
-    assert!(seq_len % block_size_qo == 0 && seq_len % block_size_kv == 0);
 
     for block_kv_j in 0..block_count_kv {
         // load kj, vj
@@ -176,7 +156,7 @@ fn flash_att_impl(
             drop(sum_delta);
 
             let o_delta = p_delta.dot(&vj);
-            let o_new = Array2f::from_shape_fn((block_size_qo, head_dim), |(a, d)| {
+            let o_new = Array2f::from_shape_fn((block_size_qo, shape.d_vo), |(a, d)| {
                 let max_old = max_old[a];
                 let max_new = max_new[a];
                 let o_old = o_old[(a, d)];
@@ -203,27 +183,23 @@ fn fn_ref<T: Copy>(f: impl Fn(T, T) -> T) -> impl Fn(&T, &T) -> T {
 }
 
 fn run_cuda_att(
+    shape: AttShape,
+    block_size_qo: usize,
+    block_size_kv: usize,
     data_q: &Tensor,
     data_k: &Tensor,
     data_v: &Tensor,
-    seq_len: usize,
-    batch_size: usize,
-    head_dim: usize,
-    block_size_qo: usize,
-    block_size_kv: usize,
 ) -> Tensor {
     let device = Device::new(0);
     let stream = CudaStream::new(device);
     // let exec = CudaExecutor::new(device, &graph, batch_size);
     // println!("{:?}", exec);
 
-    assert_eq!(batch_size, 1);
-    let shape = vec![seq_len, batch_size, head_dim];
-
-    let input_q = DeviceTensor::alloc_simple(device, shape.clone());
-    let input_k = DeviceTensor::alloc_simple(device, shape.clone());
-    let input_v = DeviceTensor::alloc_simple(device, shape.clone());
-    let output = DeviceTensor::alloc_simple(device, shape);
+    assert_eq!(shape.b, 1);
+    let input_q = DeviceTensor::alloc_simple(device, vec![shape.s_qo, shape.b, shape.d_qk]);
+    let input_k = DeviceTensor::alloc_simple(device, vec![shape.s_kv, shape.b, shape.d_qk]);
+    let input_v = DeviceTensor::alloc_simple(device, vec![shape.s_kv, shape.b, shape.d_vo]);
+    let output = DeviceTensor::alloc_simple(device, vec![shape.s_qo, shape.b, shape.d_vo]);
 
     let kernel = AttentionKernel::new(
         device,
@@ -237,8 +213,8 @@ fn run_cuda_att(
     println!("{:?}", kernel);
 
     let scratch = DeviceTensor::alloc_simple(device, vec![kernel.scratch_size()]);
-    let mut data_output = Array::zeros((seq_len, batch_size, head_dim));
-    let mut data_scratch = Array1f::zeros(2 * seq_len);
+    let mut data_output = Array::zeros((shape.s_qo, shape.b, shape.d_vo));
+    let mut data_scratch = Array1f::zeros(kernel.scratch_size());
 
     unsafe {
         input_q.copy_simple_from_host(data_q.as_slice().unwrap());
@@ -266,12 +242,12 @@ fn run_cuda_att(
     data_output.into_dyn().into_shared()
 }
 
-fn build_att_graph(d: usize, s: usize, scaled: bool) -> Graph {
+fn build_att_graph(shape: AttShape, scaled: bool) -> Graph {
     let mut graph = Graph::new();
 
-    let q = graph.input(shape![s, Size::BATCH, d]);
-    let k = graph.input(shape![s, Size::BATCH, d]);
-    let v = graph.input(shape![s, Size::BATCH, d]);
+    let q = graph.input(shape![shape.s_qo, Size::BATCH, shape.d_qk]);
+    let k = graph.input(shape![shape.s_kv, Size::BATCH, shape.d_qk]);
+    let v = graph.input(shape![shape.s_kv, Size::BATCH, shape.d_vo]);
 
     let q_perm = graph.permute(q, vec![1, 0, 2]);
     let k_perm = graph.permute(k, vec![1, 2, 0]);
@@ -279,7 +255,7 @@ fn build_att_graph(d: usize, s: usize, scaled: bool) -> Graph {
     let logits_raw = graph.batched_mat_mul(q_perm, k_perm);
 
     let logits = if scaled {
-        let scale = graph.scalar(1.0 / (d as f32).sqrt());
+        let scale = graph.scalar(1.0 / (shape.d_qk as f32).sqrt());
         graph.binary(BinaryOp::Mul, logits_raw, scale)
     } else {
         logits_raw
