@@ -1,3 +1,4 @@
+use clap::Parser;
 use std::ops::Add;
 
 use itertools::Itertools;
@@ -18,6 +19,16 @@ use nn_graph::optimizer::optimize_graph;
 use nn_graph::shape;
 use nn_graph::shape::Size;
 
+#[derive(Parser)]
+struct Args {
+    #[clap(long)]
+    run_cpu: bool,
+    #[clap(long)]
+    run_exec: bool,
+    #[clap(long, default_value_t = 20)]
+    iterations: usize,
+}
+
 fn main() {
     let shape = AttShape {
         b: 1,
@@ -31,8 +42,7 @@ fn main() {
     let block_size_qo = 32;
     let block_size_kv = 32;
 
-    let run_cpu = false;
-    let run_exec = false;
+    let args = Args::parse();
 
     let mut rng = SmallRng::seed_from_u64(4);
     let data_q = rng_tensor((shape.s_qo, shape.b, shape.d_qk), &mut rng);
@@ -44,7 +54,7 @@ fn main() {
     let graph = optimize_graph(&graph, Default::default());
     println!("{}", graph);
 
-    let output_expected = if run_cpu {
+    let output_expected = if args.run_cpu {
         println!("Running CPU graph");
         let output_expected =
             cpu_eval_graph(&graph, shape.b, &[data_q.clone(), data_k.clone(), data_v.clone()]).remove(0);
@@ -58,7 +68,7 @@ fn main() {
         None
     };
 
-    if run_exec {
+    if args.run_exec {
         println!("Running GPU graph");
         let device = Device::new(0);
         let mut exec = CudaExecutor::new(device, &graph, shape.b);
@@ -87,6 +97,7 @@ fn main() {
         &data_q,
         &data_k,
         &data_v,
+        args.iterations,
     );
     if let Some(output_expected) = output_expected {
         assert_tensors_match(&[output_expected.clone()], &[output_cuda], true);
@@ -199,6 +210,7 @@ fn run_cuda_att(
     data_q: &Tensor,
     data_k: &Tensor,
     data_v: &Tensor,
+    iterations: usize,
 ) -> Tensor {
     let device = Device::new(0);
     let stream = CudaStream::new(device);
@@ -237,7 +249,7 @@ fn run_cuda_att(
         stream.synchronize();
 
         let start = stream.record_event();
-        let iterations = 10;
+        println!("Running kernel for {iterations} iterations");
         for _ in 0..iterations {
             kernel.run(&stream, &input_q, &input_k, &input_v, &output, &scratch);
         }
