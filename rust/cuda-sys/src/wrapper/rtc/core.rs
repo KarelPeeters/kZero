@@ -128,6 +128,8 @@ impl CuModule {
                 // "-G".to_string(),
                 // "--generate-line-info".to_string(),
                 // "--define-macro=NVRTC".to_string(),
+                r#"--include-path=C:\Users\Karel\Desktop\TempClone\cutlass\include"#.to_string(),
+                r#"--include-path="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.7\include\""#.to_string(),
             ];
 
             let args = args

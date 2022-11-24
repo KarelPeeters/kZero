@@ -15,6 +15,10 @@ lazy_static! {
     static ref HEADERS: HashMap<&'static str, &'static str> = {
         let mut map = HashMap::new();
         map.insert("util.cu", include_str!("util.cu"));
+        map.insert(
+            "assert.h",
+            include_str!("C:/Users/Karel/Desktop/TempClone/cutlass/build/test/unit/nvrtc/nvrtc/assert.h"),
+        );
         map
     };
 }
