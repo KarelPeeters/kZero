@@ -78,7 +78,7 @@ def main():
         return build_network(1, 8)
 
     def initial_network():
-        return build_network(16, 1024)
+        return build_network(16, 128)
 
     initial_files_pattern = ""
 
