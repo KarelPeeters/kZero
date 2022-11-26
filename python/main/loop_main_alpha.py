@@ -45,7 +45,7 @@ def main():
         search_fpu_child="relative+0",
         search_virtual_loss_weight=1.0,
         full_search_prob=1.0,
-        full_iterations=400,
+        full_iterations=1000,
         part_iterations=20,
         weights=UctWeights.default(),
         random_symmetries=False,
