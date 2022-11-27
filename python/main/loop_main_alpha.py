@@ -36,7 +36,7 @@ def main():
         temperature=1.0,
         zero_temp_move_count=30,
         q_mode="wdl+0.0",
-        max_game_length=400,
+        max_game_length=1000,
         dirichlet_alpha=0.2,
         dirichlet_eps=0.25,
         search_policy_temperature_root=1.4,
@@ -99,7 +99,7 @@ def main():
         max_buffer_size=2_000_000,
 
         train_batch_size=512,
-        samples_per_position=0.3,
+        samples_per_position=0.1,
         test_fraction=0.05,
 
         optimizer=lambda params: AdamW(params, weight_decay=1e-3),
