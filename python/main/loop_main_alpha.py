@@ -49,7 +49,7 @@ def main():
         part_iterations=20,
         weights=UctWeights.default(),
         random_symmetries=False,
-        cache_size=400,
+        cache_size=1000,
         top_moves=0,
     )
 
