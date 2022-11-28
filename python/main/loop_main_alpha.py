@@ -99,10 +99,10 @@ def main():
         max_buffer_size=2_000_000,
 
         train_batch_size=512,
-        samples_per_position=0.1,
+        samples_per_position=0.3,
         test_fraction=0.05,
 
-        optimizer=lambda params: AdamW(params, weight_decay=1e-3),
+        optimizer=lambda params: AdamW(params, lr=0.0001, weight_decay=1e-3),
 
         fixed_settings=fixed_settings,
         selfplay_settings=selfplay_settings,
