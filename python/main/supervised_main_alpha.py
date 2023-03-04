@@ -9,8 +9,7 @@ from lib.data.group import DataGroup
 from lib.data.sampler import PositionSampler
 from lib.games import Game
 from lib.logger import Logger
-from lib.model.attention import AttentionTower
-from lib.model.post_act import ScalarHead, AttentionPolicyHead, PredictionHeads
+from lib.model.post_act import ScalarHead, AttentionPolicyHead, PredictionHeads, ResTower
 from lib.plotter import LogPlotter, run_with_plotter
 from lib.supervised import supervised_loop
 from lib.train import TrainSettings, ScalarTarget
@@ -31,11 +30,11 @@ def find_last_finished_batch(path: str) -> Optional[int]:
 
 
 def main(plotter: LogPlotter):
-    output_folder = "../../data/supervised/att-again-deeper"
+    output_folder = "../../data/supervised/conv-baseline"
 
     paths = [
-        fr"C:\Documents\Programming\STTT\AlphaZero\data\loop\chess\16x128\selfplay\games_{i}.bin"
-        for i in range(2600, 3600)
+        fr"C:\Documents\Programming\STTT\kZero\data\loop\chess\16x128_pst\selfplay\games_{i}.bin"
+        for i in range(2400, 3400)
     ]
 
     limit_file_count: Optional[int] = None
@@ -44,8 +43,8 @@ def main(plotter: LogPlotter):
     os.makedirs(output_folder, exist_ok=True)
     allow_resume = True
 
-    batch_size = 256
-    train_random_symmetries = True
+    batch_size = 1024
+    train_random_symmetries = False
 
     test_steps = 16
     save_steps = 128
@@ -67,11 +66,10 @@ def main(plotter: LogPlotter):
     include_final: bool = False
 
     def initial_network():
-        channels = 256
+        channels = 128
         return PredictionHeads(
-            common=AttentionTower(game.board_size, game.full_input_channels, 16, channels, 8, 16, 16, 256, 0.1),
-            # common=ResTower(8, game.full_input_channels, channels),
-
+            # common=AttentionTower(game.board_size, game.full_input_channels, 16, channels, 8, 16, 16, 256, 0.1),
+            common=ResTower(16, game.full_input_channels, channels),
             scalar_head=ScalarHead(game.board_size, channels, 4, 32),
             policy_head=AttentionPolicyHead(game, channels, channels),
         )
@@ -84,7 +82,7 @@ def main(plotter: LogPlotter):
     test_group = DataGroup.from_files(game, files, 1 - test_fraction, 1)
 
     train_sampler = PositionSampler(train_group, batch_size, None, include_final, False, train_random_symmetries,
-                                    threads=1)
+                                    threads=2)
     test_sampler = PositionSampler(test_group, batch_size, None, include_final, False, train_random_symmetries,
                                    threads=1)
 
