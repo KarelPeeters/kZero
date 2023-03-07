@@ -5,8 +5,9 @@ pub fn convert_pt_to_onnx(path: &str, game: &str) {
     let mut output_path = PathBuf::from(path);
     output_path.set_extension("onnx");
 
-    let status = Command::new("python")
+    let status = Command::new("py")
         .env("PYTHONPATH", "../python")
+        .args(["-3.9"])
         .arg("../python/main/convert_network.py")
         .args(["--game", game])
         .arg(path)

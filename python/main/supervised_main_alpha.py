@@ -9,7 +9,7 @@ from lib.data.group import DataGroup
 from lib.data.sampler import PositionSampler
 from lib.games import Game
 from lib.logger import Logger
-from lib.model.post_act import ScalarHead, AttentionPolicyHead, PredictionHeads, ResTower
+from lib.model.model_perceiver import ChessPerceiverModel
 from lib.plotter import LogPlotter, run_with_plotter
 from lib.supervised import supervised_loop
 from lib.train import TrainSettings, ScalarTarget
@@ -30,7 +30,7 @@ def find_last_finished_batch(path: str) -> Optional[int]:
 
 
 def main(plotter: LogPlotter):
-    output_folder = "../../data/supervised/conv-baseline"
+    output_folder = "../../data/supervised/perceiver_4"
 
     paths = [
         fr"C:\Documents\Programming\STTT\kZero\data\loop\chess\16x128_pst\selfplay\games_{i}.bin"
@@ -43,7 +43,7 @@ def main(plotter: LogPlotter):
     os.makedirs(output_folder, exist_ok=True)
     allow_resume = True
 
-    batch_size = 1024
+    batch_size = 64
     train_random_symmetries = False
 
     test_steps = 16
@@ -57,7 +57,7 @@ def main(plotter: LogPlotter):
         policy_weight=1.0,
         sim_weight=0.0,
         moves_left_delta=20,
-        moves_left_weight=0.0001,
+        moves_left_weight=0.0,
         clip_norm=5.0,
         scalar_target=ScalarTarget.Final,
         train_in_eval_mode=False,
@@ -66,13 +66,9 @@ def main(plotter: LogPlotter):
     include_final: bool = False
 
     def initial_network():
-        channels = 128
-        return PredictionHeads(
-            # common=AttentionTower(game.board_size, game.full_input_channels, 16, channels, 8, 16, 16, 256, 0.1),
-            common=ResTower(16, game.full_input_channels, channels),
-            scalar_head=ScalarHead(game.board_size, channels, 4, 32),
-            policy_head=AttentionPolicyHead(game, channels, channels),
-        )
+        # return DenseNetwork(game=game, depth=16, size=2048, res=True, )
+        # return ChessPerceiverModel(game, 128, 4, 512, 2, 12, False)
+        return ChessPerceiverModel(game, 128, 4, 512, 2, 4, False)
 
     files = sorted((DataFile.open(game, p) for p in paths), key=lambda f: f.info.timestamp)
     if limit_file_count is not None:
@@ -85,6 +81,16 @@ def main(plotter: LogPlotter):
                                     threads=2)
     test_sampler = PositionSampler(test_group, batch_size, None, include_final, False, train_random_symmetries,
                                    threads=1)
+
+    example_input = train_sampler.next_batch().input_full.to("cpu")
+    print("Tracing model")
+    network_jit = torch.jit.trace(initial_network(), example_input)
+    print("Saving JIT")
+    torch.jit.save(network_jit, "test.pt")
+    print("Saving ONNX")
+    torch.onnx.export(network_jit, example_input, "test.onnx")
+    print("done saving model")
+    return
 
     print(f"File count: {len(files)}")
     print(f"  Train simulation count: {len(train_group.simulations)}")
@@ -111,6 +117,7 @@ def main(plotter: LogPlotter):
     # optimizer = SGD(network.parameters(), weight_decay=1e-5, lr=0.0, momentum=0.9)
     # schedule = WarmupSchedule(100, FixedSchedule([0.02, 0.01, 0.001], [900, 2_000]))
 
+    # optimizer = torch.optim.AdamW(network.parameters(), weight_decay=1e-5)
     optimizer = torch.optim.AdamW(network.parameters(), weight_decay=1e-5)
     schedule = None
 

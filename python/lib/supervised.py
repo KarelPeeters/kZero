@@ -4,7 +4,6 @@ import os
 import time
 from typing import Optional
 
-import torch
 import torch.nn.functional as nnf
 from torch import nn
 from torch.optim import Optimizer
@@ -12,7 +11,6 @@ from torch.optim import Optimizer
 from lib.data.sampler import PositionSampler
 from lib.logger import Logger
 from lib.plotter import LogPlotter
-from lib.save_onnx import save_onnx
 from lib.schedule import Schedule
 from lib.train import TrainSettings
 from lib.util import json_map
@@ -83,5 +81,5 @@ def supervised_loop(
             logger.save(os.path.join(output_folder, "log.npz"))
 
             print("Saving network")
-            torch.jit.script(network).save(os.path.join(output_folder, f"network_{bi}.pt"))
-            save_onnx(settings.game, os.path.join(output_folder, f"network_{bi}.onnx"), network, 4)
+            # torch.save(network, os.path.join(output_folder, f"network_{bi}.pt"))
+            # save_onnx(settings.game, os.path.join(output_folder, f"network_{bi}.onnx"), network, 4)
