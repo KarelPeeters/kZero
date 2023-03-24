@@ -8,4 +8,5 @@ mod graphs;
 mod kernels;
 mod onnx;
 
+mod katago;
 mod slow;
