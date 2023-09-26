@@ -4,11 +4,11 @@ use std::marker::PhantomData;
 
 use board_game::board::Board;
 use itertools::Itertools;
+use kn_cuda_eval::executor::CudaExecutor;
+use kn_cuda_eval::Device;
+use kn_graph::graph::Graph;
 
-use cuda_nn_eval::executor::CudaExecutor;
-use cuda_nn_eval::Device;
 use kz_util::sequence::VecExtPad;
-use nn_graph::graph::Graph;
 
 use crate::mapping::BoardMapper;
 use crate::network::common::{check_graph_shapes, decode_output};

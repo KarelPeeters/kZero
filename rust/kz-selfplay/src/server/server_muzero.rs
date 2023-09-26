@@ -2,9 +2,9 @@ use board_game::board::AltBoard;
 use crossbeam::thread::Scope;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
+use kn_cuda_sys::wrapper::handle::Device;
 use rand::rngs::StdRng;
 
-use cuda_sys::wrapper::handle::Device;
 use kz_core::mapping::BoardMapper;
 use kz_core::network::job_channel::job_pair;
 use kz_core::network::muzero::{MuZeroFusedGraphs, MuZeroGraphs};

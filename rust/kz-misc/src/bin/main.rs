@@ -16,6 +16,9 @@ use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use decorum::N32;
 use itertools::{Either, Itertools};
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::optimizer::optimize_graph;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
 use tui::backend::CrosstermBackend;
@@ -25,7 +28,6 @@ use tui::style::{Color, Modifier, Style};
 use tui::widgets::Widget;
 use tui::Terminal;
 
-use cuda_sys::wrapper::handle::Device;
 use kz_core::mapping::ataxx::AtaxxStdMapper;
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::mapping::go::GoStdMapper;
@@ -41,8 +43,6 @@ use kz_core::zero::values::ZeroValuesAbs;
 use kz_core::zero::wrapper::ZeroSettings;
 use kz_selfplay::server::protocol::Game;
 use kz_util::display::display_option_empty;
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::optimizer::optimize_graph;
 
 #[derive(clap::Parser)]
 struct Args {

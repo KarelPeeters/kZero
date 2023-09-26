@@ -6,14 +6,14 @@ use board_game::board::Board;
 use flume::{Receiver, RecvError, Selector, Sender, TryRecvError};
 use futures::never::Never;
 use itertools::Itertools;
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::graph::Graph;
 use superluminal_perf::{begin_event_with_color, end_event};
 
-use cuda_sys::wrapper::handle::Device;
 use kz_core::mapping::BoardMapper;
 use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::{Job, JobServer};
 use kz_core::network::{Network, ZeroEvaluation};
-use nn_graph::graph::Graph;
 
 use crate::superluminal::{CL_BLUE, CL_GREEN, CL_YELLOW};
 

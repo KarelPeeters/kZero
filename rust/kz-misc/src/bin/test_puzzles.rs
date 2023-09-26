@@ -7,18 +7,18 @@ use board_game::games::chess::{ChessBoard, Rules};
 use decorum::Total;
 use internal_iterator::InternalIterator;
 use itertools::Itertools;
+use kn_cuda_eval::Device;
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::optimizer::optimize_graph;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use cuda_nn_eval::Device;
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::network::cudnn::CudaNetwork;
 use kz_core::zero::node::UctWeights;
 use kz_core::zero::step::{FpuMode, QMode};
 use kz_core::zero::wrapper::ZeroSettings;
 use kz_misc::eval::lichess_puzzle::for_each_lichess_puzzle;
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::optimizer::optimize_graph;
 
 fn main() {
     let path = read_to_string("ignored/network_path.txt").unwrap();

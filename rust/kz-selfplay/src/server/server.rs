@@ -1,6 +1,8 @@
+use std::hash::Hash;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
+use std::sync::Arc;
 
 use board_game::board::{AltBoard, Board};
 use board_game::games::arimaa::ArimaaBoard;
@@ -11,15 +13,17 @@ use clap::Parser;
 use crossbeam::thread::Scope;
 use flume::{Receiver, Sender};
 use itertools::Itertools;
+use kn_cuda_sys::wrapper::handle::Device;
 use rand::rngs::StdRng;
 
-use cuda_sys::wrapper::handle::Device;
 use kz_core::mapping::arimaa::ArimaaSplitMapper;
 use kz_core::mapping::ataxx::AtaxxStdMapper;
 use kz_core::mapping::chess::{ChessHistoryMapper, ChessStdMapper};
+use kz_core::mapping::go::GoStdMapper;
 use kz_core::mapping::sttt::STTTStdMapper;
 use kz_core::mapping::ttt::TTTStdMapper;
 use kz_core::mapping::BoardMapper;
+use kz_core::network::dummy::NetworkOrDummy;
 
 use crate::server::collector::collector_main;
 use crate::server::commander::{commander_main, read_command};
@@ -191,11 +195,6 @@ fn selfplay_start_dispatch_game(
         }
     }
 }
-
-use kz_core::mapping::go::GoStdMapper;
-use kz_core::network::dummy::NetworkOrDummy;
-use std::hash::Hash;
-use std::sync::Arc;
 
 fn selfplay_start_dispatch_spec_alt<
     B: AltBoard + Hash,

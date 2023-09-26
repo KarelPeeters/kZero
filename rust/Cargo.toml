@@ -2,9 +2,6 @@
 
 members = [
     # general crates
-    "nn-graph",
-    "cuda-sys",
-    "cuda-nn-eval",
     "pgn-reader",
     "licorice",
     # kZero-specific crates
@@ -40,16 +37,18 @@ opt-level = 3
 
 [workspace.dependencies]
 # path dependencies
-cuda-nn-eval = { path = "cuda-nn-eval" }
-cuda-sys = { path = "cuda-sys" }
 kz-core = { path = "kz-core" }
 kz-selfplay = { path = "kz-selfplay" }
 kz-util = { path = "kz-util" }
 licorice = { path = "licorice" }
-nn-graph = { path = "nn-graph" }
 pgn-reader = { path = "pgn-reader" }
 
-# crates.io dependencies
+# Kyanite subcrates
+kn-graph = "0.2.1"
+kn-cuda-sys = "0.2.1"
+kn-cuda-eval = "0.2.1"
+
+# crates.io depedencies
 anyhow = "1.0.70"
 async-trait = "0.1.68"
 bindgen = "0.64.0"

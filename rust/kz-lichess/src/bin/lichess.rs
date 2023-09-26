@@ -5,11 +5,13 @@ use board_game::board::Board;
 use board_game::games::chess::{ChessBoard, Rules};
 use board_game::util::pathfind::pathfind_exact_length;
 use itertools::Itertools;
+use kn_cuda_eval::Device;
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use tokio_stream::StreamExt;
 
-use cuda_nn_eval::Device;
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::network::job_channel::job_pair;
 use kz_core::zero::node::UctWeights;
@@ -20,8 +22,6 @@ use kz_selfplay::server::executor::{alphazero_batched_executor_loop, RunConditio
 use licorice::client::{Lichess, LichessResult};
 use licorice::models::board::{BoardState, GameFull};
 use licorice::models::game::UserGame;
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::optimizer::{optimize_graph, OptimizerSettings};
 
 const MAX_VISITS: u64 = 10_000_000;
 const MAX_TIME: f32 = 60.0;

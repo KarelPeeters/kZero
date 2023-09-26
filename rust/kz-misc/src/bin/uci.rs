@@ -8,18 +8,18 @@ use board_game::games::chess::{ChessBoard, Rules};
 use board_game::pov::NonPov;
 use board_game::wdl::WDL;
 use flume::{Receiver, RecvError, Sender, TryRecvError};
+use kn_cuda_eval::Device;
+use kn_graph::onnx::load_graph_from_onnx_path;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
 use vampirc_uci::UciMessage;
 
-use cuda_nn_eval::Device;
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::network::cudnn::CudaNetwork;
 use kz_core::zero::node::UctWeights;
 use kz_core::zero::step::{FpuMode, QMode};
 use kz_core::zero::tree::Tree;
 use kz_core::zero::wrapper::ZeroSettings;
-use nn_graph::onnx::load_graph_from_onnx_path;
 
 const INFO_PERIOD: f32 = 0.5;
 

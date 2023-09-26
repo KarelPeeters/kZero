@@ -1,15 +1,15 @@
 use board_game::board::{Board, Player};
+use kn_graph::cpu::{softmax, Tensor};
+use kn_graph::graph::Value;
+use kn_graph::ndarray::{Array2, Axis};
+use kn_graph::shape;
+use kn_graph::shape::Size;
+use kn_graph::visualize::{visualize_graph_activations, Image, VisTensor};
 use ndarray::{s, ArrayView1, Slice};
 
 use kz_core::mapping::BoardMapper;
 use kz_core::network::common::softmax_in_place;
 use kz_core::network::cpu::CPUNetwork;
-use nn_graph::cpu::{softmax, Tensor};
-use nn_graph::graph::Value;
-use nn_graph::ndarray::{Array2, Axis};
-use nn_graph::shape;
-use nn_graph::shape::Size;
-use nn_graph::visualize::{visualize_graph_activations, Image, VisTensor};
 
 pub fn visualize_network_activations_split<B: Board, M: BoardMapper<B>>(
     network: &mut CPUNetwork<B, M>,

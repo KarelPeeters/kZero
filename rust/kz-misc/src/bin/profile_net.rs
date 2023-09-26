@@ -3,14 +3,13 @@ use std::time::Instant;
 
 use clap::Parser;
 use itertools::{izip, Itertools};
+use kn_cuda_eval::executor::CudaExecutor;
+use kn_cuda_eval::Device;
+use kn_graph::cpu::{cpu_eval_graph, Tensor};
+use kn_graph::graph::Graph;
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
 use ndarray::IxDyn;
-
-use cuda_nn_eval::executor::CudaExecutor;
-use cuda_nn_eval::Device;
-use nn_graph::cpu::{cpu_eval_graph, Tensor};
-use nn_graph::graph::Graph;
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::optimizer::{optimize_graph, OptimizerSettings};
 
 #[derive(Debug, clap::Parser)]
 struct Args {

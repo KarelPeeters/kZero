@@ -3,18 +3,17 @@ use std::sync::Barrier;
 
 use clap::Parser;
 use itertools::{enumerate, Itertools};
+use kn_cuda_eval::executor::CudaExecutor;
+use kn_cuda_eval::tester::{assert_tensors_match, check_tensors_match};
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::cpu::Tensor;
+use kn_graph::graph::Graph;
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
 use rand::distributions::Standard;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
-
-use cuda_nn_eval::executor::CudaExecutor;
-use cuda_nn_eval::tester::{assert_tensors_match, check_tensors_match};
-use cuda_sys::wrapper::handle::Device;
-use nn_graph::cpu::Tensor;
-use nn_graph::graph::Graph;
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::optimizer::{optimize_graph, OptimizerSettings};
 
 #[derive(Debug, clap::Parser)]
 struct Args {

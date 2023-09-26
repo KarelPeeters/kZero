@@ -1,26 +1,27 @@
+use std::hash::Hash;
+
 use board_game::board::Board;
 use crossbeam::thread::Scope;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::graph::Graph;
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::optimizer::optimize_graph;
 use rand::rngs::StdRng;
 use rand::thread_rng;
 
-use cuda_sys::wrapper::handle::Device;
 use kz_core::mapping::BoardMapper;
 use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::job_pair;
 use kz_core::network::symmetry::RandomSymmetryNetwork;
 use kz_core::network::Network;
 use kz_util::math::ceil_div;
-use nn_graph::graph::Graph;
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::optimizer::optimize_graph;
 
 use crate::server::executor::{batched_executor_loop, RunCondition};
 use crate::server::generator_alphazero::generator_alphazero_main;
 use crate::server::protocol::{Evals, GeneratorUpdate, Settings, StartupSettings};
 use crate::server::server::{GraphSender, ZeroSpecialization};
-use std::hash::Hash;
 
 #[derive(Debug)]
 pub struct AlphaZeroSpecialization;

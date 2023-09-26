@@ -2,7 +2,7 @@
 
 A from-scratch implementation of the [AlphaGo](https://www.nature.com/articles/nature24270), [AlphaZero](https://arxiv.org/abs/1712.01815) and [MuZero](https://www.nature.com/articles/s41586-020-03051-4.epdf) papers for different board games, written in a combination of Python and Rust.
 
-This repository also includes a fairly involved neural network inference framework that can run ONNX files either on the CPU or on GPUs using cuda/cudnn/cublas/nvrtc, see the relevant chapter below for more details.
+For GPU inference the [Kyanite library](https://github.com/KarelPeeters/Kyanite) is used.
 
 ## Project Overview
 
@@ -45,63 +45,6 @@ Incoming data files are added to the replay buffer. The sampler uses multiple th
 
 The status of the replay buffer and training statistics are plotted in realtime using a Qt GUI.
 
-### Neural network inference framework (Rust)
-
-To run NN inference in the selfplay server, a custom neural network inference framework is used. (see [Scope Creep](https://en.wikipedia.org/wiki/Scope_creep))
-
-This framework is not focused on the specific networks used in AlphaZero (usually ResNet-derived CNNs), but aims to be more general. In particular, it is general enough to support inference of the [Stable Diffusion](https://arxiv.org/abs/2112.10752) and [LLaMA](https://arxiv.org/abs/2302.13971) models.
-
-The typical pipeline is shown in the first figure below. The second figure shows the results of running this pipeline on a simple NN architecture.
-
-![NN inference diagram](./docs/arch_inference.svg)
-
-![conv_bn_sm_flow.svg](./docs/conv_bn_sm_flow.svg)
-
-Central is the _Graph IR_, the intermediate representation for neural network graphs.
-
-The structure is an [SSA](https://en.wikipedia.org/wiki/Static_single-assignment_form)-style directed acyclic graph, where nodes are values with a shape, type and the operation that computes it. These values are abstract, they don't have strides or memory locations yet. The operations are similar to those of other frameworks, but are kept as orthogonal as possible. Some example operations: convolution, matmul, reshape, broadcast, slice, unary, binary, reduce, softmax, ... 
-
-The graph can be constructed directly in code, but for convenience an ONNX loader exists. It can read ONNX files and convert the supported subset of operations into those supported by the IR. Many ONNX operations are decomposed into separate steps, some examples:
-
-* ONNX binary operations implicitly broadcast their operands, but this step is a separate operation in the IR.
-* ONNX convolution and matmul have a built-in optional bias operand, this also becomes separate broadcast plus binary addition operation.
-
-The graph can optionally be optimized by the _optimizer_. The optimizations that are currently implemented are:
-
-* Constant folding
-* Fusing consecutive affine (bias, scale, batchnorm) operations into a single bias+scale operation.
-* Fusing consecutive clamping operations (relu, min, max) into a single min+max operation.
-* Strength reduction: replacing division by a constant with multiplication by the inverse constant.
-* Recognizing the layernorm template (reduce, subtract, power, reduce, divide) and replacing it with the layernorm operator.
-
-Finally the graph needs to be executed. There is a simple _CPU executor_ that just directly runs each operation. No major optimizations are attempted here, except for using BLAS routines for matmuls and im2col for convolutions. It's important that this executor is as simple as possible because it serves as the baseline for unit tests that check the correctness of the GPU executor.
-
-The second (and more useful) way to run these graphs is with the _Cuda executor_. This involves running the graph though the _Cuda Planner_, which outputs a predetermined schedule of Cuda operations, and allocates the necessary memory buffers. This is split out as a separate step so this expensive planning step only needs to be carried out once per network architecture, the resulting plan can then be reused many times in the executor.
-
-The planner has the following major responsibilities:
-
-* Determine the memory layout of tensors: the strides and the memory offsets
-  
-  * This implicitly handles reshape, broadcast, stride, ... operations.
-  * We also reuse buffers if possible, minimizing total memory usage.
-
-* Decide which cudnn/cublas operations to run for convolutions and matmuls
-  
-  * If possible, fuse operations together, eg. cudnn supports a "convolution + residual + bias + relu" operation.
-
-* Compile custom kernels for the remaining scalar and compound operations using an _autokernel_ framework based on [NVRTC (Runtime Compilation)](https://docs.nvidia.com/cuda/nvrtc/index.html).
-  
-  * The operations handled by *autokernel* are: scalar operations, reduce, softmax, layernorm, gather.
-  
-  * Handwritten kernel templates are used, with details such as tensor shapes, strides, scalar operations, ... substituted in before compilation at runtime.
-  
-  * More operator fusion happens here
-    
-    * Multiple scalar operations get compiled to a single kernel
-    
-    * Constant scalars are inlined
-    
-    * Some compound kernels support fusing input or output scalar operations
 
 ## Current status and results
 

@@ -4,11 +4,10 @@ use board_game::board::Board;
 use board_game::pov::ScalarPov;
 use board_game::wdl::WDL;
 use internal_iterator::InternalIterator;
+use kn_graph::graph::Graph;
+use kn_graph::shape;
+use kn_graph::shape::{Shape, Size};
 use ndarray::{s, ArrayView1, ArrayView2};
-
-use nn_graph::graph::Graph;
-use nn_graph::shape;
-use nn_graph::shape::{Shape, Size};
 
 use crate::mapping::{BoardMapper, PolicyMapper};
 use crate::network::ZeroEvaluation;

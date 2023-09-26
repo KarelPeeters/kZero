@@ -4,12 +4,12 @@ use std::cmp::min;
 use board_game::board::AltBoard;
 use flume::{Receiver, TryRecvError};
 use internal_iterator::InternalIterator;
+use kn_cuda_eval::quant::QuantizedStorage;
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::mem::pool::DevicePool;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use cuda_nn_eval::quant::QuantizedStorage;
-use cuda_sys::wrapper::handle::Device;
-use cuda_sys::wrapper::mem::pool::DevicePool;
 use kz_core::mapping::BoardMapper;
 use kz_core::muzero::step::{
     muzero_step_apply, muzero_step_gather, MuZeroExpandRequest, MuZeroRequest, MuZeroResponse, MuZeroRootRequest,

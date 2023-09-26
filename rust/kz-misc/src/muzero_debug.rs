@@ -1,11 +1,13 @@
 use std::iter;
 
 use board_game::board::{AltBoard, PlayError};
+use kn_cuda_eval::device_tensor::DeviceTensor;
+use kn_cuda_eval::executor::CudaExecutor;
+use kn_cuda_eval::quant::{BatchQuantizer, QuantizedStorage};
+use kn_cuda_sys::wrapper::handle::{CudaStream, Device};
+use kn_graph::graph::SliceRange;
+use kn_graph::optimizer::OptimizerSettings;
 
-use cuda_nn_eval::device_tensor::DeviceTensor;
-use cuda_nn_eval::executor::CudaExecutor;
-use cuda_nn_eval::quant::{BatchQuantizer, QuantizedStorage};
-use cuda_sys::wrapper::handle::{CudaStream, Device};
 use kz_core::mapping::BoardMapper;
 use kz_core::muzero::wrapper::MuZeroSettings;
 use kz_core::network::common::{softmax, softmax_in_place, zero_values_from_scalars};
@@ -13,8 +15,6 @@ use kz_core::network::muzero::{ExpandArgs, MuZeroGraphs, RootArgs};
 use kz_core::zero::node::UctWeights;
 use kz_core::zero::step::FpuMode;
 use kz_util::display::display_option;
-use nn_graph::graph::SliceRange;
-use nn_graph::optimizer::OptimizerSettings;
 
 pub fn muzero_debug_utility<B: AltBoard, M: BoardMapper<B>>(
     path: &str,

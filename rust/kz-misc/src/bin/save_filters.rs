@@ -5,11 +5,10 @@ use std::path::{Path, PathBuf};
 
 use image::{ImageBuffer, Rgb};
 use itertools::Itertools;
+use kn_graph::graph::{Graph, Value};
+use kn_graph::onnx::load_graph_from_onnx_path;
 use palette::{LinSrgb, Srgb};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-
-use nn_graph::graph::{Graph, Value};
-use nn_graph::onnx::load_graph_from_onnx_path;
 
 pub type Image = ImageBuffer<Rgb<u8>, Vec<u8>>;
 

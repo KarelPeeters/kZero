@@ -4,8 +4,8 @@ use board_game::wdl::OutcomeWDL;
 use decorum::N32;
 use internal_iterator::{InternalIterator, IteratorExt};
 use itertools::Itertools;
+use kn_cuda_eval::quant::QuantizedStorage;
 
-use cuda_nn_eval::quant::QuantizedStorage;
 use kz_util::sequence::top_k_indices_sorted;
 
 use crate::mapping::BoardMapper;

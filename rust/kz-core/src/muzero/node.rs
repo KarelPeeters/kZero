@@ -1,4 +1,4 @@
-use cuda_nn_eval::quant::QuantizedStorage;
+use kn_cuda_eval::quant::QuantizedStorage;
 
 use crate::zero::node::Uct;
 use crate::zero::range::IdxRange;

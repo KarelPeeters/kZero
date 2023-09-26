@@ -4,18 +4,18 @@ use std::marker::PhantomData;
 
 use board_game::board::Board;
 use itertools::Itertools;
+use kn_cuda_eval::executor::CudaExecutor;
+use kn_cuda_eval::quant::{BatchQuantizer, QuantizedStorage};
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::graph::{Graph, SliceRange};
+use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_graph::onnx::result::OnnxResult;
+use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
+use kn_graph::shape;
+use kn_graph::shape::{Shape, Size};
 use serde::Deserialize;
 
-use cuda_nn_eval::executor::CudaExecutor;
-use cuda_nn_eval::quant::{BatchQuantizer, QuantizedStorage};
-use cuda_sys::wrapper::handle::Device;
 use kz_util::sequence::VecExtPad;
-use nn_graph::graph::{Graph, SliceRange};
-use nn_graph::onnx::load_graph_from_onnx_path;
-use nn_graph::onnx::result::OnnxResult;
-use nn_graph::optimizer::{optimize_graph, OptimizerSettings};
-use nn_graph::shape;
-use nn_graph::shape::{Shape, Size};
 
 use crate::mapping::BoardMapper;
 use crate::muzero::MuZeroEvaluation;

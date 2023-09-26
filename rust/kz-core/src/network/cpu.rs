@@ -4,10 +4,9 @@ use std::marker::PhantomData;
 
 use board_game::board::Board;
 use itertools::Itertools;
-
-use nn_graph::cpu::{cpu_eval_graph_exec, ExecutionInfo, Tensor};
-use nn_graph::graph::Graph;
-use nn_graph::ndarray::IxDyn;
+use kn_graph::cpu::{cpu_eval_graph_exec, ExecutionInfo, Tensor};
+use kn_graph::graph::Graph;
+use kn_graph::ndarray::IxDyn;
 
 use crate::mapping::BoardMapper;
 use crate::network::common::{check_graph_shapes, decode_output};

@@ -4,10 +4,11 @@ use board_game::board::Board;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
 use itertools::Itertools;
+use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::graph::Graph;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use cuda_sys::wrapper::handle::Device;
 use kz_core::mapping::BoardMapper;
 use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::job_pair;
@@ -17,7 +18,6 @@ use kz_core::zero::wrapper::ZeroSettings;
 use kz_selfplay::server::executor::{batched_executor_loop, RunCondition};
 use kz_util::math::ceil_div;
 use kz_util::throughput::PrintThroughput;
-use nn_graph::graph::Graph;
 
 #[derive(Debug, Copy, Clone)]
 pub struct BatchEvalSettings {

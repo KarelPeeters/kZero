@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 board-game.workspace = true
-cuda-nn-eval.workspace = true
-cuda-sys.workspace = true
+kn-cuda-eval.workspace = true
+kn-cuda-sys.workspace = true
+kn-graph.workspace = true
 kz-util.workspace = true
-nn-graph.workspace = true
 
 # TODO remove shakmaty and corresponding oracle
 async-trait.workspace = true
