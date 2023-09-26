@@ -11,7 +11,8 @@ use futures::task::SpawnExt;
 use futures::StreamExt;
 use itertools::Itertools;
 use tabled::builder::Builder;
-use tabled::{Margin, Style, Table};
+use tabled::settings::{Margin, Style};
+use tabled::Table;
 
 use kz_core::bot::AsyncBot;
 
@@ -361,7 +362,7 @@ fn display_add_rows(table: &mut Builder, name: &str, bot_names: &[String], grid_
 
     let mut header = vec![name.to_owned(), total_wdl_str, "total".to_owned()];
     header.extend_from_slice(bot_names);
-    table.add_record(header);
+    table.push_record(header);
 
     for i in 0..bot_count {
         let bot_wdl = total_wdl_per_bot[i];
@@ -373,7 +374,7 @@ fn display_add_rows(table: &mut Builder, name: &str, bot_names: &[String], grid_
         for j in 0..bot_count {
             row.push(display_format_wdl_elo(grid_wdl[i][j]));
         }
-        table.add_record(row);
+        table.push_record(row);
     }
 }
 
