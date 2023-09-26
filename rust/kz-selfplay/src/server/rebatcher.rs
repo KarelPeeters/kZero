@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use itertools::Itertools;
 
-use kz_core::network::job_channel::{Job, job_pair, JobClient, JobServer};
+use kz_core::network::job_channel::{job_pair, Job, JobClient, JobServer};
 
 pub struct Rebatcher<X, Y> {
     batch_size_in: usize,
