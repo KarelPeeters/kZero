@@ -40,7 +40,7 @@ fn main() {
                     &[k, c] => (k, c, 1, 1),
                     _ => continue,
                 };
-                let data = data.reshape((k, c, h, w));
+                let data = data.unwrap_f32().unwrap().reshape((k, c, h, w));
 
                 let shape_name = shape.iter().map(ToString::to_string).join("x");
                 let image_path = PathBuf::from(format!(

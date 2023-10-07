@@ -3,6 +3,10 @@ name = "kz-selfplay"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+muzero = []
+default = []
+
 [dependencies]
 board-game.workspace = true
 kn-cuda-eval.workspace = true

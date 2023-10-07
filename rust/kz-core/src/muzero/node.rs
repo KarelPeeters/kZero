@@ -1,5 +1,3 @@
-use kn_cuda_eval::quant::QuantizedStorage;
-
 use crate::zero::node::Uct;
 use crate::zero::range::IdxRange;
 use crate::zero::values::ZeroValuesPov;
@@ -15,6 +13,10 @@ pub struct MuNode {
     pub net_policy: f32,
     pub inner: Option<MuNodeInner>,
 }
+
+// TODO remove/rewrite all of this, this is just a placeholder for now
+#[derive(Debug, Clone)]
+pub struct QuantizedStorage {}
 
 #[derive(Debug, Clone)]
 pub struct MuNodeInner {

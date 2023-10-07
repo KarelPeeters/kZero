@@ -29,6 +29,7 @@ use crate::server::collector::collector_main;
 use crate::server::commander::{commander_main, read_command};
 use crate::server::protocol::{Command, Game, GeneratorUpdate, Settings, StartupSettings};
 use crate::server::server_alphazero::AlphaZeroSpecialization;
+#[cfg(feature = "muzero")]
 use crate::server::server_muzero::MuZeroSpecialization;
 use crate::server::start_pos::{ataxx_start_pos, go_start_pos};
 
@@ -210,6 +211,7 @@ fn selfplay_start_dispatch_spec_alt<
     writer: BufWriter<impl Write + Send>,
 ) {
     if startup.muzero {
+        #[cfg(feature = "muzero")]
         selfplay_start(
             game,
             devices,
@@ -220,6 +222,9 @@ fn selfplay_start_dispatch_spec_alt<
             writer,
             MuZeroSpecialization,
         );
+
+        #[cfg(not(feature = "muzero"))]
+        panic!("MuZero feature was not enabled")
     } else {
         selfplay_start(
             game,

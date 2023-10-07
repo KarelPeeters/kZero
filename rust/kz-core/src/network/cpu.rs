@@ -4,7 +4,8 @@ use std::marker::PhantomData;
 
 use board_game::board::Board;
 use itertools::Itertools;
-use kn_graph::cpu::{cpu_eval_graph_exec, ExecutionInfo, Tensor};
+use kn_graph::cpu::{cpu_eval_graph_exec, ExecutionInfo};
+use kn_graph::dtype::{DTensor, Tensor};
 use kn_graph::graph::Graph;
 use kn_graph::ndarray::IxDyn;
 
@@ -46,7 +47,7 @@ impl<B: Board, M: BoardMapper<B>> CPUNetwork<B, M> {
             .unwrap_or_else(|_| panic!("Incompatible shapes: ({}) -> {:?}", input_len, input_shape));
 
         // evaluate the graph
-        cpu_eval_graph_exec(&self.graph, batch_size, &[input], keep_all)
+        cpu_eval_graph_exec(&self.graph, batch_size, &[DTensor::F32(input)], keep_all)
     }
 
     pub fn mapper(&self) -> M {
@@ -65,7 +66,10 @@ impl<B: Board, M: BoardMapper<B>> Network<B> for CPUNetwork<B, M> {
 
     fn evaluate_batch(&mut self, boards: &[impl Borrow<B>]) -> Vec<ZeroEvaluation<'static>> {
         let outputs = self.evaluate_batch_exec(boards, false).output_tensors();
-        let batch_outputs = outputs.iter().map(|t| t.as_slice().unwrap()).collect_vec();
+        let batch_outputs = outputs
+            .iter()
+            .map(|t| t.unwrap_f32().unwrap().as_slice().unwrap())
+            .collect_vec();
 
         decode_output(self.mapper, boards, &batch_outputs)
     }

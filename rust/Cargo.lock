@@ -1309,9 +1309,9 @@ dependencies = [
 
 [[package]]
 name = "kn-cuda-eval"
-version = "0.2.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4e657592a701d2a0e1bec5b3196de68fb14ab3da30025142d98bf8e841233a4"
+checksum = "865819c5757258fad8029684c3cc3956433c44eace4859ab2e0509034e22713c"
 dependencies = [
  "bytemuck",
  "cc",
@@ -1325,9 +1325,9 @@ dependencies = [
 
 [[package]]
 name = "kn-cuda-sys"
-version = "0.2.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "143c75726f80af378425f1527f9699abe7488767b3fd94ba64899de364a81635"
+checksum = "86359e1946e67974b7b78c8bbaa2cba1384ea333d1c8e6451d141c8c197d83ef"
 dependencies = [
  "bindgen",
  "bytemuck",
@@ -1336,10 +1336,11 @@ dependencies = [
 
 [[package]]
 name = "kn-graph"
-version = "0.2.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1961afcfc440c94bc1dd4e3ae6eed1ce9a27d73d60b05c6bdb460d27251bd6d3"
+checksum = "d947812faf5a38339726793dec98c5b2aee293da7006e97141a768744b97ad28"
 dependencies = [
+ "bytemuck",
  "byteorder",
  "decorum",
  "image",

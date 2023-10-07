@@ -1,3 +1,4 @@
+#[cfg(feature = "muzero")]
 pub mod muzero;
 pub mod zero;
 

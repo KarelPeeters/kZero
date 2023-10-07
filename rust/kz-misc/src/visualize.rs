@@ -1,5 +1,6 @@
 use board_game::board::{Board, Player};
-use kn_graph::cpu::{softmax, Tensor};
+use kn_graph::cpu::softmax;
+use kn_graph::dtype::DTensor;
 use kn_graph::graph::Value;
 use kn_graph::ndarray::{Array2, Axis};
 use kn_graph::shape;
@@ -63,10 +64,16 @@ pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
         output_count
     );
 
-    let post_process = move |value: Value, tensor: Tensor| {
+    let post_process = move |value: Value, tensor: &DTensor| {
         if !graph.outputs().contains(&value) {
             return vec![];
         }
+        // TODO support other dtypes
+        let tensor = if let DTensor::F32(tensor) = tensor {
+            tensor
+        } else {
+            return vec![];
+        };
 
         let value_shape = shape![Size::BATCH];
         let wdl_shape = shape![Size::BATCH, 3];
@@ -80,7 +87,7 @@ pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
             vec![VisTensor::abs(tensor.mapv(|x| (x.tanh() + 1.0 / 2.0)).to_shared())]
         } else if shape == &wdl_shape {
             // softmax(wdl_logits)
-            vec![VisTensor::abs(softmax(tensor, Axis(1)).to_shared())]
+            vec![VisTensor::abs(softmax(tensor.view(), Axis(1)).to_shared())]
         } else if shape == &scalar_shape {
             // tanh(value_logit) -> 0..1, softmax(wdl_logits), moves_left
             vec![

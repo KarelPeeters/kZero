@@ -2,14 +2,13 @@ use std::cmp::max;
 use std::time::Instant;
 
 use clap::Parser;
-use itertools::{izip, Itertools};
+use itertools::izip;
 use kn_cuda_eval::executor::CudaExecutor;
 use kn_cuda_eval::Device;
-use kn_graph::cpu::{cpu_eval_graph, Tensor};
+use kn_graph::cpu::cpu_eval_graph;
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
-use ndarray::IxDyn;
 
 #[derive(Debug, clap::Parser)]
 struct Args {
@@ -102,8 +101,7 @@ fn profile_different_batch_sizes(device: Device, graph: &Graph) {
         println!("Testing batch size {} with {} iterations", batch_size, iterations);
 
         let mut executor = CudaExecutor::new(device, &graph, batch_size);
-        let inputs = dummy_inputs(&graph, batch_size);
-        let inputs = inputs.iter().map(|v| v.as_slice().unwrap()).collect_vec();
+        let inputs = graph.dummy_zero_inputs(batch_size);
 
         for _ in 0..max(1, iterations / 10) {
             executor.evaluate(&inputs);
@@ -125,9 +123,7 @@ fn profile_different_batch_sizes(device: Device, graph: &Graph) {
 
 fn profile_single_batch_size_cudnn(device: Device, graph: &Graph, batch_size: usize, n: usize, skip_io: bool) {
     let mut executor = CudaExecutor::new(device, &graph, batch_size);
-
-    let inputs = dummy_inputs(&graph, batch_size);
-    let inputs = inputs.iter().map(|v| v.as_slice().unwrap()).collect_vec();
+    let inputs = graph.dummy_zero_inputs(batch_size);
 
     println!("Warmup");
     for _ in 0..max(1, n / 10) {
@@ -162,7 +158,7 @@ fn profile_single_batch_size_cudnn(device: Device, graph: &Graph, batch_size: us
 }
 
 fn profile_single_batch_size_cpu(graph: &Graph, batch_size: usize, n: usize) {
-    let inputs = dummy_inputs(&graph, batch_size);
+    let inputs = graph.dummy_zero_inputs(batch_size);
 
     println!("Warmup");
     for _ in 0..max(1, n / 10) {
@@ -177,12 +173,4 @@ fn profile_single_batch_size_cpu(graph: &Graph, batch_size: usize, n: usize) {
     let delta = (Instant::now() - start).as_secs_f32();
     let throughput = (batch_size * n) as f32 / delta;
     println!("Throughput: {} evals/s", throughput);
-}
-
-fn dummy_inputs(graph: &Graph, batch_size: usize) -> Vec<Tensor> {
-    graph
-        .inputs()
-        .iter()
-        .map(|&v| Tensor::zeros(IxDyn(&graph[v].shape.eval(batch_size).dims)))
-        .collect_vec()
 }

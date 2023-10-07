@@ -3,6 +3,11 @@ name = "kz-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# TODO fix all muzero code and remove the feature again
+muzero = []
+default = []
+
 [dependencies]
 board-game.workspace = true
 kn-cuda-eval.workspace = true

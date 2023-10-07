@@ -6,7 +6,7 @@ use itertools::{enumerate, Itertools};
 use kn_cuda_eval::executor::CudaExecutor;
 use kn_cuda_eval::tester::{assert_tensors_match, check_tensors_match};
 use kn_cuda_sys::wrapper::handle::Device;
-use kn_graph::cpu::Tensor;
+use kn_graph::dtype::{DTensor, Tensor};
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
@@ -27,7 +27,7 @@ struct Args {
     path: String,
 }
 
-type IOPair = (Vec<Tensor>, Vec<Tensor>);
+type IOPair = (Vec<DTensor>, Vec<DTensor>);
 
 fn main() {
     let Args {
@@ -86,6 +86,8 @@ fn generate_io_pairs(
 ) -> Vec<IOPair> {
     let mut executor = CudaExecutor::new(device, graph, batch_size);
 
+    // TODO generalize to different types
+    // TODO just use the common dummy_inputs function?
     (0..count)
         .map(|_| {
             let inputs = graph
@@ -94,11 +96,11 @@ fn generate_io_pairs(
                 .map(|&v| {
                     let shape = graph[v].shape.eval(batch_size);
                     let data = rng.sample_iter(Standard).take(shape.size()).collect_vec();
-                    Tensor::from_shape_vec(shape.dims, data).unwrap()
+                    DTensor::F32(Tensor::from_shape_vec(shape.dims, data).unwrap())
                 })
                 .collect_vec();
 
-            let outputs = executor.evaluate_tensors(&inputs);
+            let outputs = executor.evaluate(&inputs).to_owned();
 
             (inputs, outputs)
         })
@@ -129,7 +131,7 @@ fn device_thread_main(
         }
 
         let (input, expected) = pairs.choose(rng).unwrap();
-        let actual = executor.evaluate_tensors(&input);
+        let actual = executor.evaluate(&input);
 
         if check_tensors_match(&expected, &actual).is_err() {
             failed.store(true, Ordering::SeqCst);

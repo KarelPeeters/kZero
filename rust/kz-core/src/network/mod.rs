@@ -8,6 +8,7 @@ use crate::zero::values::ZeroValuesPov;
 
 pub mod common;
 pub mod dummy;
+#[cfg(feature = "muzero")]
 pub mod muzero;
 pub mod symmetry;
 

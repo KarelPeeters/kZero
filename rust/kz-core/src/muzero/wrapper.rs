@@ -2,7 +2,6 @@ use std::fmt::{Debug, Formatter};
 
 use board_game::ai::Bot;
 use board_game::board::{AltBoard, BoardDone};
-use kn_cuda_eval::quant::QuantizedStorage;
 
 use crate::mapping::BoardMapper;
 use crate::muzero::step::{

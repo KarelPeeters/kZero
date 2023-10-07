@@ -44,9 +44,12 @@ licorice = { path = "licorice" }
 pgn-reader = { path = "pgn-reader" }
 
 # Kyanite subcrates
-kn-graph = "0.2.1"
-kn-cuda-sys = "0.2.1"
-kn-cuda-eval = "0.2.1"
+kn-graph = "0.4.0"
+kn-cuda-sys = "0.4.0"
+kn-cuda-eval = "0.4.0"
+#kn-graph = { path = "../../Kyanite/kn-graph" }
+#kn-cuda-sys = { path = "../../Kyanite/kn-cuda-sys" }
+#kn-cuda-eval = { path = "../../Kyanite/kn-cuda-eval" }
 
 # crates.io depedencies
 anyhow = "1.0.75"

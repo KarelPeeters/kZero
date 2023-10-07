@@ -6,6 +6,7 @@ use board_game::board::Board;
 use itertools::Itertools;
 use kn_cuda_eval::executor::CudaExecutor;
 use kn_cuda_eval::Device;
+use kn_graph::dtype::{DTensor, Tensor};
 use kn_graph::graph::Graph;
 
 use kz_util::sequence::VecExtPad;
@@ -63,12 +64,16 @@ impl<B: Board, M: BoardMapper<B>> Network<B> for CudaNetwork<B, M> {
         }
         self.input.pad(max_batch_size * self.mapper.input_full_len(), f32::NAN);
 
+        // TODO switch to tensor/array view here? this extra copy is sad
+        let input = Tensor::from_shape_vec(self.mapper.input_full_shape().to_vec(), self.input.clone()).unwrap();
+
         // run the actual computation
-        let outputs = self.executor.evaluate(&[&self.input]);
+        let outputs = self.executor.evaluate(&[DTensor::F32(input)]);
 
         let relevant_outputs = outputs
             .iter()
             .map(|x| {
+                let x = x.unwrap_f32().unwrap().as_slice().unwrap();
                 let other_size = x.len() / max_batch_size;
                 &x[0..batch_size * other_size]
             })

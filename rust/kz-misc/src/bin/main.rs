@@ -224,6 +224,9 @@ fn main_impl<B: Board>(
         if let Event::Key(KeyEvent {
             code: KeyCode::Char(code),
             modifiers,
+            // TODO do we need to care about these?
+            kind: _,
+            state: _,
         }) = event
         {
             match code {
