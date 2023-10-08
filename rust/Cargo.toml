@@ -44,9 +44,9 @@ licorice = { path = "licorice" }
 pgn-reader = { path = "pgn-reader" }
 
 # Kyanite subcrates
-kn-graph = "0.4.0"
-kn-cuda-sys = "0.4.0"
-kn-cuda-eval = "0.4.0"
+kn-graph = "0.5.0"
+kn-cuda-sys = "0.5.0"
+kn-cuda-eval = "0.5.0"
 #kn-graph = { path = "../../Kyanite/kn-graph" }
 #kn-cuda-sys = { path = "../../Kyanite/kn-cuda-sys" }
 #kn-cuda-eval = { path = "../../Kyanite/kn-cuda-eval" }
