@@ -4,6 +4,24 @@ A from-scratch implementation of the [AlphaGo](https://www.nature.com/articles/n
 
 For GPU inference the [Kyanite library](https://github.com/KarelPeeters/Kyanite) is used.
 
+## Table of contents
+
+<!-- TOC -->
+* [kZero](#kzero)
+  * [Table of contents](#table-of-contents)
+  * [Project Overview](#project-overview)
+    * [Top level](#top-level)
+    * [Selfplay server (Rust)](#selfplay-server-rust)
+    * [Training (Python)](#training-python)
+  * [Current status and results](#current-status-and-results)
+  * [File structure](#file-structure)
+    * [Python](#python)
+    * [Rust](#rust)
+      * [Core crates](#core-crates)
+      * [Low-level crates](#low-level-crates)
+      * [Utility crates](#utility-crates)
+<!-- TOC -->
+
 ## Project Overview
 
 ### Top level
