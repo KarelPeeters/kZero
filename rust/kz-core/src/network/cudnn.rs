@@ -65,7 +65,9 @@ impl<B: Board, M: BoardMapper<B>> Network<B> for CudaNetwork<B, M> {
         self.input.pad(max_batch_size * self.mapper.input_full_len(), f32::NAN);
 
         // TODO switch to tensor/array view here? this extra copy is sad
-        let input = Tensor::from_shape_vec(self.mapper.input_full_shape().to_vec(), self.input.clone()).unwrap();
+        let mut input_shape = vec![self.max_batch_size];
+        input_shape.extend_from_slice(&self.mapper.input_full_shape());
+        let input = Tensor::from_shape_vec(input_shape, self.input.clone()).unwrap();
 
         // run the actual computation
         let outputs = self.executor.evaluate(&[DTensor::F32(input)]);

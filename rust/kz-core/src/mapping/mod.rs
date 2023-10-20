@@ -14,6 +14,8 @@ pub mod sttt;
 pub mod ttt;
 
 /// A way to encode a board as a tensor.
+/// TODO switch to encoding/decoding from Vec<DTensors> directly
+///    then we lose bitpacking booleans, is that a big deal?
 pub trait InputMapper<B: Board>: Debug + Copy + Send + Sync + Eq + PartialEq {
     fn input_bool_shape(&self) -> [usize; 3];
     fn input_scalar_count(&self) -> usize;
