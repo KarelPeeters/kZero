@@ -1,5 +1,5 @@
 use board_game::board::{Outcome, Player};
-use board_game::pov::{NonPov, ScalarPov};
+use board_game::pov::NonPov;
 use serde::{Deserialize, Serialize};
 
 use crate::zero::range::IdxRange;
@@ -173,7 +173,8 @@ impl<N> Node<N> {
 
         let fpu = match fpu_mode {
             FpuMode::Relative(scalar) => {
-                let parent_value = select_value(parent.values, q_mode, pov).value;
+                let parent_values_pov = parent.values.pov(pov);
+                let parent_value = q_mode.select(parent_values_pov.value, parent_values_pov.wdl).value;
                 parent_value - scalar * parent.visited_policy_mass.sqrt()
             }
             FpuMode::Fixed(fpu) => fpu,
@@ -184,7 +185,8 @@ impl<N> Node<N> {
         let q = if total_visits_virtual == 0.0 {
             fpu
         } else {
-            let total_value = select_value(self.sum_values, q_mode, pov).value;
+            let sum_values_pov = self.sum_values.pov(pov);
+            let total_value = q_mode.select(sum_values_pov.value, sum_values_pov.wdl).value;
             let total_value_virtual = total_value - virtual_loss_weight * self.virtual_visits as f32;
             let node_value = total_value_virtual / total_visits_virtual;
             node_value
@@ -201,15 +203,5 @@ impl<N> Node<N> {
         };
 
         Uct { q, u, m }
-    }
-}
-
-fn select_value(values: ZeroValuesAbs, q_mode: QMode, pov: Player) -> ScalarPov<f32> {
-    match q_mode {
-        QMode::Value => values.value_abs.pov(pov),
-        QMode::WDL { draw_score } => {
-            let wdl = values.wdl_abs.pov(pov);
-            ScalarPov::new(wdl.win + draw_score * wdl.draw - wdl.loss)
-        }
     }
 }

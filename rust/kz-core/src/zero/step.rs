@@ -4,7 +4,8 @@ use std::num::ParseFloatError;
 use std::str::FromStr;
 
 use board_game::board::Board;
-use board_game::pov::Pov;
+use board_game::pov::{Pov, ScalarPov};
+use board_game::wdl::WDL;
 use decorum::N32;
 use internal_iterator::InternalIterator;
 use rand::Rng;
@@ -228,6 +229,13 @@ impl FromStr for FpuMode {
 impl QMode {
     pub fn wdl() -> QMode {
         QMode::WDL { draw_score: 0.0 }
+    }
+
+    pub fn select(self, value: ScalarPov<f32>, wdl: WDL<f32>) -> ScalarPov<f32> {
+        match self {
+            QMode::Value => value,
+            QMode::WDL { draw_score } => ScalarPov::new(wdl.win + draw_score * wdl.draw - wdl.loss),
+        }
     }
 }
 
