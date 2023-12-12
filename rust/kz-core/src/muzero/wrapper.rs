@@ -75,7 +75,7 @@ impl MuZeroSettings {
 
             // evaluate request
             if let Some(request) = request {
-                let output_state = QuantizedStorage::new(device.alloc(state_size), state_size);
+                let output_state = device.alloc(state_size);
 
                 let response = match request {
                     MuZeroRequest::Root(MuZeroRootRequest { node, board }) => {

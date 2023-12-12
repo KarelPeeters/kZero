@@ -16,7 +16,9 @@ pub struct MuNode {
 
 // TODO remove/rewrite all of this, this is just a placeholder for now
 #[derive(Debug, Clone)]
-pub struct QuantizedStorage {}
+pub struct QuantizedStorage {
+    buffer: DevicePtr,
+}
 
 #[derive(Debug, Clone)]
 pub struct MuNodeInner {

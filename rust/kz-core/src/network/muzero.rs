@@ -5,14 +5,14 @@ use std::marker::PhantomData;
 use board_game::board::Board;
 use itertools::Itertools;
 use kn_cuda_eval::executor::CudaExecutor;
-use kn_cuda_eval::quant::{BatchQuantizer, QuantizedStorage};
 use kn_cuda_sys::wrapper::handle::Device;
+use kn_graph::dtype::DType;
 use kn_graph::graph::{Graph, SliceRange};
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::onnx::result::OnnxResult;
 use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
 use kn_graph::shape;
-use kn_graph::shape::{Shape, Size};
+use kn_graph::shape::Shape;
 use serde::Deserialize;
 
 use kz_util::sequence::VecExtPad;
@@ -97,8 +97,6 @@ pub struct MuZeroOutputDecoder<B: Board, M: BoardMapper<B>> {
     _info: MuZeroNetworkInfo,
     ph: PhantomData<B>,
 
-    quantizer: BatchQuantizer,
-
     output_scalars_buffer: Vec<f32>,
     output_policy_buffer: Vec<f32>,
 }
@@ -158,7 +156,7 @@ impl<B: Board, M: BoardMapper<B>> MuZeroGraphs<B, M> {
 
             let input_shape = Shape::fixed(&self.mapper.input_full_shape()).batched();
 
-            let input = root.input(input_shape);
+            let input = root.input(input_shape, DType::F32);
             let state = root.call(&self.representation, &[input])[0];
             let state_saved = root.slice(state, 1, state_slice_range);
             let outputs = root.call(&self.prediction, &[state]);
@@ -170,8 +168,8 @@ impl<B: Board, M: BoardMapper<B>> MuZeroGraphs<B, M> {
         let expand = {
             let mut expand = Graph::new();
 
-            let prev_state = expand.input(self.info.state_saved_shape(self.mapper));
-            let mv = expand.input(Shape::fixed(&self.mapper.encoded_move_shape()).batched());
+            let prev_state = expand.input(self.info.state_saved_shape(self.mapper), DType::F32);
+            let mv = expand.input(Shape::fixed(&self.mapper.encoded_move_shape()).batched(), DType::F32);
             let state = expand.call(&self.dynamics, &[prev_state, mv])[0];
             let state_saved = expand.slice(state, 1, state_slice_range);
             let outputs = expand.call(&self.prediction, &[state]);
@@ -220,7 +218,7 @@ impl<B: Board, M: BoardMapper<B>> MuZeroFusedGraphs<B, M> {
 
 #[derive(Debug)]
 pub struct ExpandArgs {
-    pub state: QuantizedStorage,
+    pub state: DevicePtr,
     pub move_index: usize,
     pub output_state: QuantizedStorage,
 }

@@ -4,6 +4,7 @@ use board_game::wdl::OutcomeWDL;
 use decorum::N32;
 use internal_iterator::{InternalIterator, IteratorExt};
 use itertools::Itertools;
+use kn_cuda_sys::wrapper::mem::device::DevicePtr;
 
 use kz_util::sequence::top_k_indices_sorted;
 
@@ -31,14 +32,14 @@ pub struct MuZeroRootRequest<B> {
 #[derive(Debug)]
 pub struct MuZeroExpandRequest {
     pub node: usize,
-    pub state: QuantizedStorage,
+    pub state: DevicePtr,
     pub move_index: usize,
 }
 
 #[derive(Debug)]
 pub struct MuZeroResponse<'a> {
     pub node: usize,
-    pub state: QuantizedStorage,
+    pub state: DevicePtr,
     pub eval: MuZeroEvaluation<'a>,
 }
 
@@ -66,7 +67,7 @@ pub fn muzero_step_gather<B: AltBoard, M: BoardMapper<B>>(
     let mut depth = 0;
 
     let mut last_move_index = None;
-    let mut last_state: Option<QuantizedStorage> = None;
+    let mut last_state: Option<DevicePtr> = None;
 
     loop {
         if depth >= tree.draw_depth {
