@@ -178,7 +178,7 @@ impl ZeroSettings {
     }
 }
 
-pub struct ZeroBot<B: Board, N: Network<B>, R: Rng + Send> {
+pub struct ZeroBot<B: Board, N: Network<B>, R: Rng> {
     network: N,
     settings: ZeroSettings,
     visits: u64,

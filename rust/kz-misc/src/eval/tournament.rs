@@ -125,6 +125,14 @@ fn run_rounds<B: Board>(
     flip_games: bool,
     mut on_print: impl FnMut() + Send + 'static,
 ) -> Vec<Round<B>> {
+    println!(
+        "Starting tournament: {} bots, {} positions, self: {}, flip: {}",
+        bots.len(),
+        start_positions.len(),
+        self_games,
+        flip_games
+    );
+
     let mut builder = ThreadPoolBuilder::new();
     builder.name_prefix("tournament");
     if let Some(thread_count) = limit_threads {
@@ -161,6 +169,7 @@ fn run_rounds<B: Board>(
     }
 
     let started_games = started_games;
+    println!("Started {} games", started_games);
     drop(bots);
     drop(sender);
 
