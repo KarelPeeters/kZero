@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 from threading import RLock
-from typing import BinaryIO, Sequence, overload, Union
+from typing import BinaryIO, Sequence, overload, Union, Optional
 
 import numpy as np
 
@@ -13,12 +13,18 @@ OFFSET_SIZE_IN_BYTES = 8
 
 
 class DataFileInfo:
-    def __init__(self, game: Game, meta: dict, bin_path: Path, off_path: Path, final_offset: int, timestamp: float):
+    def __init__(self, game: Optional[Game], meta: dict, bin_path: Path, off_path: Path, final_offset: int,
+                 timestamp: float):
         actual_game = meta.pop("game")
-        assert actual_game == game.name, f"Expected game {game.name}, got {actual_game}"
-        assert meta.pop("input_bool_shape") == list(game.input_bool_shape)
-        assert meta.pop("input_scalar_count") == game.input_scalar_channels
-        assert meta.pop("policy_shape") == list(game.policy_shape)
+        actual_input_bool_shape = meta.pop("input_bool_shape")
+        actual_input_scalar_count = meta.pop("input_scalar_count")
+        actual_policy_shape = meta.pop("policy_shape")
+
+        if game is not None:
+            assert actual_game == game.name, f"Expected game {game.name}, got {actual_game}"
+            assert actual_input_bool_shape == list(game.input_bool_shape)
+            assert actual_input_scalar_count == game.input_scalar_channels
+            assert actual_policy_shape == list(game.policy_shape)
 
         self.game = game
         self.bin_path = bin_path
@@ -59,7 +65,7 @@ class DataFile:
         self._cached_simulation_start_indices = None
 
     @staticmethod
-    def open(game: Game, path: str) -> 'DataFile':
+    def open(game: Optional[Game], path: str) -> 'DataFile':
         path = Path(path)
         json_path = path.with_suffix(".json").absolute()
         bin_path = path.with_suffix(".bin").absolute()

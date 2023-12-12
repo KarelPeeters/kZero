@@ -9,14 +9,20 @@ use crate::mapping::{InputMapper, MuZeroMapper, PolicyMapper};
 pub struct AtaxxStdMapper {
     size: u8,
     policy_shape: [usize; 1],
+    include_move_counter: bool,
 }
 
 impl AtaxxStdMapper {
     pub fn new(size: u8) -> Self {
+        Self::new_custom(size, true)
+    }
+
+    pub fn new_custom(size: u8, include_move_counter: bool) -> Self {
         let policy_size = (17 * size as usize * size as usize) + 1;
         AtaxxStdMapper {
             size,
             policy_shape: [policy_size],
+            include_move_counter,
         }
     }
 
@@ -90,11 +96,17 @@ impl InputMapper<AtaxxBoard> for AtaxxStdMapper {
     }
 
     fn input_scalar_count(&self) -> usize {
-        1
+        if self.include_move_counter {
+            1
+        } else {
+            0
+        }
     }
 
     fn encode_input(&self, bools: &mut BitBuffer, scalars: &mut Vec<f32>, board: &AtaxxBoard) {
-        scalars.push(board.moves_since_last_copy() as f32 / MAX_MOVES_SINCE_LAST_COPY as f32);
+        if self.include_move_counter {
+            scalars.push(board.moves_since_last_copy() as f32 / MAX_MOVES_SINCE_LAST_COPY as f32);
+        }
 
         let (next_tiles, other_tiles) = board.tiles_pov();
         bools.extend(board.full_mask().into_iter().map(|c| next_tiles.has(c)));
