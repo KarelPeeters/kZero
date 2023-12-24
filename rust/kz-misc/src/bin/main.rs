@@ -10,7 +10,8 @@ use board_game::games::go;
 use board_game::games::go::{GoBoard, Komi};
 use clap::Parser;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind,
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton,
+    MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -221,10 +222,17 @@ fn main_impl<B: Board>(
 
         let event = crossterm::event::read()?;
 
+        // skip duplicate event
+        //   see https://github.com/crossterm-rs/crossterm/issues/772
+        if let Event::Key(event) = event {
+            if event.kind == KeyEventKind::Release {
+                continue;
+            }
+        }
+
         if let Event::Key(KeyEvent {
             code: KeyCode::Char(code),
             modifiers,
-            // TODO do we need to care about these?
             kind: _,
             state: _,
         }) = event
