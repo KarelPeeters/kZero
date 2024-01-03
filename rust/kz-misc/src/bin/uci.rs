@@ -3,7 +3,7 @@ use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 
-use board_game::board::Board;
+use board_game::board::{Board, Player};
 use board_game::games::chess::{ChessBoard, Rules};
 use board_game::pov::NonPov;
 use board_game::wdl::WDL;
@@ -12,7 +12,7 @@ use kn_cuda_eval::Device;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
-use vampirc_uci::UciMessage;
+use vampirc_uci::{UciMessage, UciTimeControl};
 
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::network::cudnn::CudaNetwork;
@@ -32,7 +32,7 @@ fn main() -> std::io::Result<()> {
     let log = &mut debug;
 
     // search settings
-    let path = "C:/Documents/Programming/STTT/AlphaZero/data/supervised/lichess_huge/network_5140.onnx";
+    let path = "chess_16x128_gen3634.onnx";
     let batch_size = 100;
     let settings = ZeroSettings::simple(batch_size, UctWeights::default(), QMode::wdl(), FpuMode::Relative(0.0));
 
@@ -44,6 +44,9 @@ fn main() -> std::io::Result<()> {
     let mut tree = None;
     let mut searching = false;
 
+    let mut alloc = 0;
+    let mut start_time = Instant::now();
+
     loop {
         // search until we receive a message
         if searching {
@@ -52,6 +55,7 @@ fn main() -> std::io::Result<()> {
 
                 settings.expand_tree(tree, &mut network, &mut rng, |tree| {
                     let now = Instant::now();
+
                     if tree.root_visits() > 0 && (now - prev_send).as_secs_f32() > INFO_PERIOD {
                         let root = &tree[0];
                         let root_player = tree.root_board().next_player();
@@ -79,6 +83,19 @@ fn main() -> std::io::Result<()> {
                         }
 
                         prev_send = now;
+                    }
+
+                    if start_time.elapsed().as_millis() as i64 > alloc {
+                        searching = false;
+
+                        let best_move = if tree.root_visits() > 0 {
+                            tree.best_move().unwrap()
+                        } else {
+                            tree.root_board().random_available_move(&mut thread_rng()).unwrap()
+                        };
+
+                        println!("bestmove {}", best_move);
+                        return true;
                     }
 
                     !receiver.is_empty()
@@ -112,8 +129,33 @@ fn main() -> std::io::Result<()> {
                     writeln!(log, "setting curr_board to {}", board)?;
                     tree = Some(Tree::new(board));
                 }
-                UciMessage::Go { .. } => {
-                    searching = true;
+                UciMessage::Go { time_control, .. } => {
+                    if let Some(tc) = time_control {
+                        if let Some(t) = &tree {
+                            alloc = match tc {
+                                UciTimeControl::Infinite => i64::MAX,
+                                UciTimeControl::MoveTime(x) => x.num_milliseconds(),
+                                UciTimeControl::TimeLeft { white_time, black_time, white_increment, black_increment, moves_to_go } => {
+                                    let mtg = i64::from(moves_to_go.unwrap_or(25));
+                                    let (remaining, inc) = match t.root_board().next_player() {
+                                        Player::A => (white_time, white_increment),
+                                        Player::B => (black_time, black_increment),
+                                    };
+                                    let remaining = remaining.unwrap().num_milliseconds();
+                                    let inc = if let Some(i) = inc {i.num_milliseconds()} else {0};
+
+                                    let base = remaining / mtg + 3 * inc / 4;
+                                    (base.min(remaining) - 5).max(10)
+                                },
+                                UciTimeControl::Ponder => unimplemented!(),
+                            };
+
+                            start_time = Instant::now();
+                            searching = true;
+                        } else {
+                            println!("info string error no position set!");
+                        }
+                    }
                 }
                 UciMessage::Stop => {
                     searching = false;

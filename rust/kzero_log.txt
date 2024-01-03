@@ -1,0 +1,5 @@
+> UNKNOWN MESSAGE: eval
+> position startpos
+setting curr_board to ChessBoard { inner: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", rep: 0, non: 0, hist: 0, rules: Rules { max_repetitions: Some(3), max_moves_without_pawn_or_capture: Some(100) } }
+> UNKNOWN MESSAGE: eval
+> go wtime 10000 btime 10000 winc 0 binc 0 
