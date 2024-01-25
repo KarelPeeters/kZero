@@ -12,7 +12,7 @@ use kn_cuda_eval::Device;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
-use vampirc_uci::{UciMessage, UciTimeControl};
+use vampirc_uci::{UciMessage, UciTimeControl, UciSearchControl};
 
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::network::cudnn::CudaNetwork;
@@ -41,8 +41,10 @@ fn main() -> std::io::Result<()> {
     let mut rng = StdRng::from_entropy();
 
     // state
+    let mut max_nodes = u64::MAX;
     let mut tree = None;
     let mut searching = false;
+    let mut nodes = 0;
 
     let mut alloc = 0;
     let mut start_time = Instant::now();
@@ -85,7 +87,8 @@ fn main() -> std::io::Result<()> {
                         prev_send = now;
                     }
 
-                    if start_time.elapsed().as_millis() as i64 > alloc {
+                    if nodes >= max_nodes || (start_time.elapsed().as_millis() as i64 > alloc) {
+                        nodes = 0;
                         searching = false;
 
                         let best_move = if tree.root_visits() > 0 {
@@ -97,6 +100,8 @@ fn main() -> std::io::Result<()> {
                         println!("bestmove {}", best_move);
                         return true;
                     }
+
+                    nodes += 1;
 
                     !receiver.is_empty()
                 });
@@ -129,8 +134,12 @@ fn main() -> std::io::Result<()> {
                     writeln!(log, "setting curr_board to {}", board)?;
                     tree = Some(Tree::new(board));
                 }
-                UciMessage::Go { time_control, .. } => {
-                    if let Some(tc) = time_control {
+                UciMessage::Go { time_control, search_control } => {
+                    if let Some(UciSearchControl { nodes, .. } ) = search_control {
+                        max_nodes = nodes.unwrap();
+                        start_time = Instant::now();
+                        searching = true;
+                    } else if let Some(tc) = time_control {
                         if let Some(t) = &tree {
                             alloc = match tc {
                                 UciTimeControl::Infinite => i64::MAX,
