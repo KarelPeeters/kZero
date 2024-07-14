@@ -9,11 +9,14 @@ muzero = []
 default = []
 
 [dependencies]
-board-game.workspace = true
+kz-util.workspace = true
+
 kn-cuda-eval.workspace = true
 kn-cuda-sys.workspace = true
 kn-graph.workspace = true
-kz-util.workspace = true
+kn-runtime.workspace = true
+
+board-game.workspace = true
 
 # TODO remove shakmaty and corresponding oracle
 async-trait.workspace = true

@@ -12,8 +12,10 @@ pub mod dummy;
 pub mod muzero;
 pub mod symmetry;
 
+// TODO remove CPU/GPU separation, this is already handled by kn-runtime
 pub mod cpu;
 pub mod cudnn;
+pub mod prepared;
 
 pub mod multibatch;
 

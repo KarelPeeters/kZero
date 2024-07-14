@@ -1287,6 +1287,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1303,14 +1312,15 @@ dependencies = [
 
 [[package]]
 name = "kn-cuda-eval"
-version = "0.5.0"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8032d61b38a39b15eb282e3d61c0e2e05582513af0048dbd2873f9ea9c82ae35"
+checksum = "8167e1c3d7f756e68b073394f19119e6933396a95b10b62eba42737807323608"
 dependencies = [
  "bytemuck",
  "cc",
+ "clap 4.4.5",
  "internal-iterator",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "kn-cuda-sys",
  "kn-graph",
  "lazy_static",
@@ -1319,33 +1329,45 @@ dependencies = [
 
 [[package]]
 name = "kn-cuda-sys"
-version = "0.5.0"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "507dffc8a3b8dbc5aab70fbd057900c5029f42cea1770c91d5c23fa6ba0663bf"
+checksum = "553148b31f3786529c9373994e5cbf5c13f8543892f81c734c8b7beb9a788bd8"
 dependencies = [
  "bindgen",
  "bytemuck",
- "itertools 0.11.0",
+ "itertools 0.12.1",
 ]
 
 [[package]]
 name = "kn-graph"
-version = "0.5.0"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89bae5bca46c5da40f627cab762b774e818425e61d1a117c1220c2176a1502e4"
+checksum = "50e3df9a143cafa720231e48af6b6a47f8c045bb31f427cbb20cce868bed4911"
 dependencies = [
  "bytemuck",
  "byteorder",
  "decorum",
  "image",
  "indexmap 2.0.0",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "ndarray",
  "num-traits",
  "palette",
  "prost",
  "rand 0.8.5",
  "unwrap-match",
+]
+
+[[package]]
+name = "kn-runtime"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17ac15cc4d340e8c4425bddb2ddcf4781bfc425f5244f4ceeb2117d3d2233eb"
+dependencies = [
+ "clap 4.4.5",
+ "kn-cuda-eval",
+ "kn-cuda-sys",
+ "kn-graph",
 ]
 
 [[package]]
@@ -1363,6 +1385,7 @@ dependencies = [
  "kn-cuda-eval",
  "kn-cuda-sys",
  "kn-graph",
+ "kn-runtime",
  "kz-util",
  "lazy_static",
  "ndarray",
@@ -1448,6 +1471,23 @@ dependencies = [
  "serde",
  "serde_json",
  "superluminal-perf",
+]
+
+[[package]]
+name = "kz-tui"
+version = "0.1.0"
+dependencies = [
+ "board-game",
+ "clap 4.4.5",
+ "crossterm 0.27.0",
+ "decorum",
+ "itertools 0.11.0",
+ "kn-graph",
+ "kn-runtime",
+ "kz-core",
+ "kz-util",
+ "rand 0.8.5",
+ "tui",
 ]
 
 [[package]]

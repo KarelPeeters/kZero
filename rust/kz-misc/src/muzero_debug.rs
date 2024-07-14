@@ -4,7 +4,7 @@ use board_game::board::{AltBoard, PlayError};
 use kn_cuda_eval::device_tensor::DeviceTensor;
 use kn_cuda_eval::executor::CudaExecutor;
 use kn_cuda_eval::quant::{BatchQuantizer, QuantizedStorage};
-use kn_cuda_sys::wrapper::handle::{CudaStream, Device};
+use kn_cuda_sys::wrapper::handle::{CudaDevice, CudaStream};
 use kn_graph::graph::SliceRange;
 use kn_graph::optimizer::OptimizerSettings;
 
@@ -39,7 +39,7 @@ unsafe fn muzero_debug_utility_inner<B: AltBoard, M: BoardMapper<B>>(
     unroll_fused: bool,
     tree_visits: Option<u64>,
 ) {
-    let device = Device::new(0);
+    let device = CudaDevice::new(0).unwrap();
     let stream = CudaStream::new(device);
 
     println!("Loading graphs");

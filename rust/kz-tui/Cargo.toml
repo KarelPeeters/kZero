@@ -1,0 +1,22 @@
+[package]
+name = "kz-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kz-core.workspace = true
+kz-util.workspace = true
+
+kn-graph.workspace = true
+kn-runtime.workspace = true
+
+board-game.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+decorum.workspace = true
+itertools.workspace = true
+rand.workspace = true
+tui.workspace = true
+
+[features]
+cuda = ["kn-runtime/cuda"]

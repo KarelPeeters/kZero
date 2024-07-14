@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use board_game::board::Board;
 use itertools::Itertools;
 use kn_cuda_eval::executor::CudaExecutor;
-use kn_cuda_eval::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::dtype::{DTensor, Tensor};
 use kn_graph::graph::Graph;
 
@@ -26,7 +26,7 @@ pub struct CudaNetwork<B: Board, M: BoardMapper<B>> {
 }
 
 impl<B: Board, M: BoardMapper<B>> CudaNetwork<B, M> {
-    pub fn new(mapper: M, graph: &Graph, max_batch_size: usize, device: Device) -> Self {
+    pub fn new(mapper: M, graph: &Graph, max_batch_size: usize, device: CudaDevice) -> Self {
         check_graph_shapes(mapper, graph);
 
         let executor = CudaExecutor::new(device, graph, max_batch_size);

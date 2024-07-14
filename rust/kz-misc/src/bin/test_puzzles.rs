@@ -7,7 +7,7 @@ use board_game::games::chess::{ChessBoard, Rules};
 use decorum::Total;
 use internal_iterator::InternalIterator;
 use itertools::Itertools;
-use kn_cuda_eval::Device;
+use kn_cuda_eval::CudaDevice;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::optimize_graph;
 use rand::rngs::StdRng;
@@ -29,7 +29,7 @@ fn main() {
     let visits = 10_000;
 
     let mapper = ChessStdMapper;
-    let mut network = CudaNetwork::new(mapper, &graph, settings.batch_size, Device::new(0));
+    let mut network = CudaNetwork::new(mapper, &graph, settings.batch_size, CudaDevice::new(0).unwrap());
     let mut rng = StdRng::from_entropy();
 
     let puzzle_path = "../data/lichess/lichess_db_puzzle.csv";

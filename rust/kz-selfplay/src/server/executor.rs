@@ -6,7 +6,7 @@ use board_game::board::Board;
 use flume::{Receiver, RecvError, Selector, Sender, TryRecvError};
 use futures::never::Never;
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
 use superluminal_perf::{begin_event_with_color, end_event};
 
@@ -147,7 +147,7 @@ pub fn batched_executor_loop<G, N, X, Y>(
 
 pub fn alphazero_batched_executor_loop<B: Board, M: BoardMapper<B>>(
     max_batch_size: usize,
-    device: Device,
+    device: CudaDevice,
     mapper: M,
     run_condition: RunCondition,
     graph: Graph,

@@ -1,6 +1,7 @@
 use crate::zero::node::Uct;
 use crate::zero::range::IdxRange;
 use crate::zero::values::ZeroValuesPov;
+use kn_cuda_sys::wrapper::mem::device::DevicePtr;
 
 #[derive(Debug, Clone)]
 pub struct MuNode {

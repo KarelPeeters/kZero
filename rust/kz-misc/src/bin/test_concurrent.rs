@@ -5,7 +5,7 @@ use clap::Parser;
 use itertools::{enumerate, Itertools};
 use kn_cuda_eval::executor::CudaExecutor;
 use kn_cuda_eval::tester::{assert_tensors_match, check_tensors_match};
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::dtype::{DTensor, Tensor};
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
@@ -38,9 +38,9 @@ fn main() {
     } = Args::parse();
 
     let devices = if devices.is_empty() {
-        Device::all().collect_vec()
+        CudaDevice::all().collect_vec()
     } else {
-        devices.into_iter().map(Device::new).collect_vec()
+        devices.into_iter().map(|d| CudaDevice::new(d).unwrap()).collect_vec()
     };
 
     println!("Using devices {:?}", devices);
@@ -78,7 +78,7 @@ fn main() {
 }
 
 fn generate_io_pairs(
-    device: Device,
+    device: CudaDevice,
     graph: &Graph,
     batch_size: usize,
     count: usize,
@@ -108,7 +108,7 @@ fn generate_io_pairs(
 }
 
 fn device_thread_main(
-    device: Device,
+    device: CudaDevice,
     graph: &Graph,
     batch_size: usize,
     pairs: &[IOPair],

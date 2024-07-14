@@ -5,7 +5,7 @@ use board_game::board::AltBoard;
 use flume::{Receiver, TryRecvError};
 use internal_iterator::InternalIterator;
 use kn_cuda_eval::quant::QuantizedStorage;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_cuda_sys::wrapper::mem::pool::DevicePool;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -31,7 +31,7 @@ use crate::simulation::{Position, Simulation};
 //   hopefully that doesn't cause too many issues
 pub async fn generator_muzero_main<B: AltBoard, M: BoardMapper<B>>(
     generator_id: usize,
-    device: Device,
+    device: CudaDevice,
     start_pos: impl Fn(&mut StdRng) -> B,
     mapper: M,
     saved_state_channels: usize,

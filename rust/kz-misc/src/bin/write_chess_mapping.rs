@@ -10,6 +10,7 @@ use board_game::games::chess::ChessBoard;
 use kz_core::mapping::chess::{generate_all_flat_moves_pov, ChessLegacyConvPolicyMapper};
 use kz_core::mapping::PolicyMapper;
 
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 struct FullMove {
     promotion: Option<Reverse<Piece>>,

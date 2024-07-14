@@ -16,10 +16,10 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use decorum::N32;
-use itertools::{Either, Itertools};
-use kn_cuda_sys::wrapper::handle::Device;
+use itertools::Itertools;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::optimize_graph;
+use kn_runtime::{compiled_with_cuda_support, Device};
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
 use tui::backend::CrosstermBackend;
@@ -33,8 +33,7 @@ use kz_core::mapping::ataxx::AtaxxStdMapper;
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::mapping::go::GoStdMapper;
 use kz_core::mapping::BoardMapper;
-use kz_core::network::cpu::CPUNetwork;
-use kz_core::network::cudnn::CudaNetwork;
+use kz_core::network::prepared::PreparedNetwork;
 use kz_core::network::symmetry::RandomSymmetryNetwork;
 use kz_core::network::Network;
 use kz_core::zero::node::{Uct, UctWeights};
@@ -42,8 +41,8 @@ use kz_core::zero::step::{zero_step_apply, zero_step_gather, FpuMode, QMode, Zer
 use kz_core::zero::tree::Tree;
 use kz_core::zero::values::ZeroValuesAbs;
 use kz_core::zero::wrapper::ZeroSettings;
-use kz_selfplay::server::protocol::Game;
 use kz_util::display::display_option_empty;
+use kz_util::game::Game;
 
 #[derive(clap::Parser)]
 struct Args {
@@ -139,14 +138,18 @@ fn main_game<B: Board, M: BoardMapper<B>>(args: &Args, board: B, mapper: M) -> s
     let graph = optimize_graph(&graph, Default::default());
 
     println!("Building network...");
-    let network_inner = if args.cpu {
+    let device = if args.cpu {
         println!("Using CPU");
-        Either::Left(CPUNetwork::new(mapper, graph))
+        Device::Cpu
     } else {
-        println!("Using Cuda");
-        Either::Right(CudaNetwork::new(mapper, &graph, args.batch_size, Device::new(0)))
+        if !compiled_with_cuda_support() {
+            eprintln!("Warning: Not compiled with cuda support");
+        }
+        Device::best()
     };
+    println!("Using device {:?}", device);
 
+    let network_inner = PreparedNetwork::new(mapper, device, graph, args.batch_size);
     let mut network = RandomSymmetryNetwork::new(network_inner, thread_rng(), args.random_symmetries);
 
     // TODO expose as params?

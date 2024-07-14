@@ -1,5 +1,5 @@
 [workspace]
-
+resolver = "2"
 members = [
     # general crates
     "pgn-reader",
@@ -10,6 +10,7 @@ members = [
     "kz-selfplay",
     "kz-lichess",
     "kz-misc",
+    "kz-tui",
 ]
 
 [profile.release]
@@ -44,9 +45,10 @@ licorice = { path = "licorice" }
 pgn-reader = { path = "pgn-reader" }
 
 # Kyanite subcrates
-kn-graph = "0.5.0"
-kn-cuda-sys = "0.5.0"
-kn-cuda-eval = "0.5.0"
+kn-graph = "0.7.3"
+kn-cuda-sys = "0.7.3"
+kn-cuda-eval = "0.7.3"
+kn-runtime = "0.7.3"
 #kn-graph = { path = "../../Kyanite/kn-graph" }
 #kn-cuda-sys = { path = "../../Kyanite/kn-cuda-sys" }
 #kn-cuda-eval = { path = "../../Kyanite/kn-cuda-eval" }

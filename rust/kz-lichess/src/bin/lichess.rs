@@ -5,7 +5,7 @@ use board_game::board::Board;
 use board_game::games::chess::{ChessBoard, Rules};
 use board_game::util::pathfind::pathfind_exact_length;
 use itertools::Itertools;
-use kn_cuda_eval::Device;
+use kn_cuda_eval::CudaDevice;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
 use rand::rngs::StdRng;
@@ -49,7 +49,7 @@ fn main() {
         .spawn(move || {
             alphazero_batched_executor_loop(
                 EVAL_BATCH_SIZE,
-                Device::new(0),
+                CudaDevice::new(0).unwrap(),
                 ChessStdMapper,
                 RunCondition::Any,
                 graph,

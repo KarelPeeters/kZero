@@ -8,7 +8,7 @@ use board_game::games::chess::{ChessBoard, Rules};
 use board_game::pov::NonPov;
 use board_game::wdl::WDL;
 use flume::{Receiver, RecvError, Sender, TryRecvError};
-use kn_cuda_eval::Device;
+use kn_cuda_eval::CudaDevice;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
     let settings = ZeroSettings::simple(batch_size, UctWeights::default(), QMode::wdl(), FpuMode::Relative(0.0));
 
     let graph = load_graph_from_onnx_path(path, false).unwrap();
-    let mut network = CudaNetwork::new(ChessStdMapper, &graph, batch_size, Device::new(0));
+    let mut network = CudaNetwork::new(ChessStdMapper, &graph, batch_size, CudaDevice::new(0).unwrap());
     let mut rng = StdRng::from_entropy();
 
     // state

@@ -158,6 +158,7 @@ pub struct MuTreeDisplay<'a, B: Board, M> {
     expand_all: bool,
 }
 
+#[allow(dead_code)]
 struct PolicyDisplay(f32);
 
 impl Display for PolicyDisplay {

@@ -4,7 +4,7 @@ use board_game::board::Board;
 use crossbeam::thread::Scope;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::optimize_graph;
@@ -32,7 +32,7 @@ impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for 
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: Device,
+        device: CudaDevice,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,

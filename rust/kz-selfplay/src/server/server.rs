@@ -13,7 +13,7 @@ use clap::Parser;
 use crossbeam::thread::Scope;
 use flume::{Receiver, Sender};
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use rand::rngs::StdRng;
 
 use kz_core::mapping::arimaa::ArimaaSplitMapper;
@@ -24,10 +24,11 @@ use kz_core::mapping::sttt::STTTStdMapper;
 use kz_core::mapping::ttt::TTTStdMapper;
 use kz_core::mapping::BoardMapper;
 use kz_core::network::dummy::NetworkOrDummy;
+use kz_util::game::Game;
 
 use crate::server::collector::collector_main;
 use crate::server::commander::{commander_main, read_command};
-use crate::server::protocol::{Command, Game, GeneratorUpdate, Settings, StartupSettings};
+use crate::server::protocol::{Command, GeneratorUpdate, Settings, StartupSettings};
 use crate::server::server_alphazero::AlphaZeroSpecialization;
 #[cfg(feature = "muzero")]
 use crate::server::server_muzero::MuZeroSpecialization;
@@ -45,9 +46,9 @@ pub fn selfplay_server_main() {
     let args: Args = Args::parse();
 
     let devices = if args.device.is_empty() {
-        Device::all().collect_vec()
+        CudaDevice::all().collect_vec()
     } else {
-        args.device.iter().map(|&d| Device::new(d)).collect_vec()
+        args.device.iter().map(|&d| CudaDevice::new(d).unwrap()).collect_vec()
     };
     assert!(!devices.is_empty(), "No cuda devices found");
     println!("Using devices: {:?}", devices);
@@ -101,7 +102,7 @@ pub fn selfplay_server_main() {
 
 fn selfplay_start_dispatch_game(
     game: Game,
-    devices: Vec<Device>,
+    devices: Vec<CudaDevice>,
     startup_settings: StartupSettings,
     writer: BufWriter<&TcpStream>,
     reader: BufReader<&TcpStream>,
@@ -203,7 +204,7 @@ fn selfplay_start_dispatch_spec_alt<
     F: Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
 >(
     game: Game,
-    devices: Vec<Device>,
+    devices: Vec<CudaDevice>,
     startup: StartupSettings,
     start_pos: F,
     mapper: M,
@@ -245,7 +246,7 @@ fn selfplay_start_dispatch_spec_non_alt<
     F: Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
 >(
     game: Game,
-    devices: Vec<Device>,
+    devices: Vec<CudaDevice>,
     startup: StartupSettings,
     start_pos: F,
     mapper: M,
@@ -289,7 +290,7 @@ pub trait ZeroSpecialization<B: Board, M: BoardMapper<B> + 'static> {
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: Device,
+        device: CudaDevice,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,
@@ -302,7 +303,7 @@ pub trait ZeroSpecialization<B: Board, M: BoardMapper<B> + 'static> {
 
 fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B, M> + Send + Sync>(
     game: Game,
-    devices: Vec<Device>,
+    devices: Vec<CudaDevice>,
     startup: StartupSettings,
     mapper: M,
     start_pos: impl Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,

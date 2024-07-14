@@ -239,6 +239,7 @@ pub struct TreeDisplay<'a, B: Board> {
     expand_all: bool,
 }
 
+#[allow(dead_code)]
 struct PolicyDisplay(f32);
 
 impl Display for PolicyDisplay {

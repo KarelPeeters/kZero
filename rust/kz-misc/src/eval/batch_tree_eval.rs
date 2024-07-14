@@ -4,7 +4,7 @@ use board_game::board::Board;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -39,7 +39,7 @@ pub fn batch_tree_eval<B: Board>(
     zero_settings: ZeroSettings,
     graph: Graph,
     mapper: impl BoardMapper<B>,
-    device: Device,
+    device: CudaDevice,
 ) -> Vec<ZeroValuesPov> {
     let position_count = positions.len();
 

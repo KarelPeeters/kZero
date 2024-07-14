@@ -2,7 +2,7 @@ use board_game::board::AltBoard;
 use crossbeam::thread::Scope;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use rand::rngs::StdRng;
 
 use kz_core::mapping::BoardMapper;
@@ -23,7 +23,7 @@ impl<B: AltBoard, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for MuZe
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: Device,
+        device: CudaDevice,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,

@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use board_game::board::Board;
 use itertools::Itertools;
 use kn_cuda_eval::executor::CudaExecutor;
-use kn_cuda_sys::wrapper::handle::Device;
+use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::dtype::DType;
 use kn_graph::graph::{Graph, SliceRange};
 use kn_graph::onnx::load_graph_from_onnx_path;
@@ -189,7 +189,7 @@ impl<B: Board, M: BoardMapper<B>> MuZeroGraphs<B, M> {
 }
 
 impl<B: Board, M: BoardMapper<B>> MuZeroFusedGraphs<B, M> {
-    pub fn root_executor(&self, device: Device, max_batch_size: usize) -> MuZeroRootExecutor<B, M> {
+    pub fn root_executor(&self, device: CudaDevice, max_batch_size: usize) -> MuZeroRootExecutor<B, M> {
         MuZeroRootExecutor {
             mapper: self.mapper,
             ph: Default::default(),
@@ -202,7 +202,7 @@ impl<B: Board, M: BoardMapper<B>> MuZeroFusedGraphs<B, M> {
         }
     }
 
-    pub fn expand_executor(&self, device: Device, max_batch_size: usize) -> MuZeroExpandExecutor<B, M> {
+    pub fn expand_executor(&self, device: CudaDevice, max_batch_size: usize) -> MuZeroExpandExecutor<B, M> {
         MuZeroExpandExecutor {
             mapper: self.mapper,
             ph: Default::default(),
@@ -304,7 +304,7 @@ impl<B: Board, M: BoardMapper<B>> MuZeroExpandExecutor<B, M> {
 }
 
 impl<B: Board, M: BoardMapper<B>> MuZeroOutputDecoder<B, M> {
-    fn new(device: Device, max_batch_size: usize, mapper: M, info: MuZeroNetworkInfo) -> Self {
+    fn new(device: CudaDevice, max_batch_size: usize, mapper: M, info: MuZeroNetworkInfo) -> Self {
         Self {
             mapper,
             _info: info,
