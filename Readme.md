@@ -38,7 +38,7 @@ The selfplay server is shown in the figure below. The orange boxes are the diffe
 
 ![Selfplay server diagram](./docs/arch_selfplay.svg)
 
-* The _commander_ receives commands from the TCP socket and forwards them to the appropriate place. Selfplay settings and hyperparameters are sent to the executors, and new neural networks are loaded from the filesystem and sent to the executors.
+* The _commander_ receives commands from the TCP socket and forwards them to the appropriate place. Selfplay settings and hyperparameters are sent to the generators, and new neural networks are loaded from the filesystem and sent to the executors.
 * The _generator_ thread pools run multiple simulations concurrently. Each simulation has its own MCTS tree that is grown over time. NN evaluation requests are sent to an executor.
 * The _executor_ threads collect NN evaluations requests into batches and use the NN inference framework described later to run these evaluations, sending results back to the corresponding generator.
 * Finally the _collector_ receives finished simulations from the generators, writes them to a file and notifies the TCP socket once enough simulations have finished.
