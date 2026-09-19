@@ -4,7 +4,6 @@ use board_game::board::Board;
 use crossbeam::thread::Scope;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
-use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::optimize_graph;
@@ -12,27 +11,26 @@ use rand::rngs::StdRng;
 use rand::thread_rng;
 
 use kz_core::mapping::BoardMapper;
-use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::job_pair;
 use kz_core::network::symmetry::RandomSymmetryNetwork;
-use kz_core::network::Network;
+use kz_core::network::{dummy::NetworkOrDummy, Network};
 use kz_util::math::ceil_div;
 
-use crate::server::executor::{batched_executor_loop, RunCondition};
+use crate::server::executor::{batched_executor_loop, AlphaZeroExecutorNetwork, RunCondition};
 use crate::server::generator_alphazero::generator_alphazero_main;
 use crate::server::protocol::{Evals, GeneratorUpdate, Settings, StartupSettings};
-use crate::server::server::{GraphSender, ZeroSpecialization};
+use crate::server::server::{GraphSender, InferenceDevice, ZeroSpecialization};
 
 #[derive(Debug)]
 pub struct AlphaZeroSpecialization;
 
-impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for AlphaZeroSpecialization {
+impl<B: Board + Hash, M: BoardMapper<B> + Clone + 'static> ZeroSpecialization<B, M> for AlphaZeroSpecialization {
     type G = Graph;
 
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: CudaDevice,
+        device: InferenceDevice,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,
@@ -45,17 +43,18 @@ impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for 
         let gpu_threads = startup.gpu_threads_per_device;
 
         let concurrent_games = ceil_div((gpu_threads + 1) * gpu_batch_size, search_batch_size);
+
         let eval_job_count = gpu_batch_size / search_batch_size;
 
         println!("Spawning {} games", concurrent_games);
 
-        let mut settings_senders: Vec<Sender<Settings>> = vec![];
-        let mut graph_senders: Vec<GraphSender<Graph>> = vec![];
+        let mut settings_senders = Vec::new();
+        let mut graph_senders = Vec::new();
 
         let job_buffer_size = ceil_div(gpu_threads * gpu_batch_size, search_batch_size);
+
         let (eval_client, eval_server) = job_pair(job_buffer_size);
 
-        // spawn cpu threads
         let pool = ThreadPoolBuilder::new()
             .pool_size(cpu_threads)
             .name_prefix(format!("generator-{}-", device_id))
@@ -85,14 +84,17 @@ impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for 
             });
         }
 
-        // spawn gpu eval threads
         for local_id in 0..gpu_threads {
             let (graph_sender, graph_receiver) = flume::bounded(1);
             graph_senders.push(graph_sender);
 
             let eval_server = eval_server.clone();
             let update_sender = update_sender.clone();
+
             let eval_random_symmetries = startup.eval_random_symmetries;
+
+            let device = device.clone();
+            let mapper = mapper.clone();
 
             s.builder()
                 .name(format!("gpu-expand-{}-{}", device_id, local_id))
@@ -102,17 +104,35 @@ impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for 
                         RunCondition::JobCount(eval_job_count),
                         graph_receiver,
                         eval_server,
-                        |graph| {
+                        move |graph: NetworkOrDummy<std::sync::Arc<Graph>>| {
                             graph.map_left(|graph| {
-                                let inner = CudaNetwork::new(mapper, &graph, gpu_batch_size, device);
+                                let inner = match device.clone() {
+                                    InferenceDevice::Cpu => {
+                                        AlphaZeroExecutorNetwork::Cpu(kz_core::network::prepared::PreparedNetwork::new(
+                                            mapper.clone(),
+                                            kn_runtime::Device::Cpu,
+                                            (*graph).clone(),
+                                            gpu_batch_size,
+                                        ))
+                                    }
+
+                                    #[cfg(feature = "cuda")]
+                                    InferenceDevice::Cuda(device) => AlphaZeroExecutorNetwork::Cuda(
+                                        kn_cuda_eval::CudaNetwork::new(mapper.clone(), &graph, gpu_batch_size, device),
+                                    ),
+                                };
+
                                 RandomSymmetryNetwork::new(inner, thread_rng(), eval_random_symmetries)
                             })
                         },
                         |network, x| {
                             let y = network.evaluate_batch(&x);
+
                             let msg =
                                 GeneratorUpdate::ExpandEvals(Evals::new(x.len() as u64, gpu_batch_size as u64, 0));
+
                             update_sender.send(msg).unwrap();
+
                             y
                         },
                     );

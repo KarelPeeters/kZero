@@ -6,15 +6,22 @@ use board_game::board::Board;
 use flume::{Receiver, RecvError, Selector, Sender, TryRecvError};
 use futures::never::Never;
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
+use kn_runtime::Device;
 use superluminal_perf::{begin_event_with_color, end_event};
 
 use kz_core::mapping::BoardMapper;
-use kz_core::network::cudnn::CudaNetwork;
+use kz_core::network::prepared::PreparedNetwork;
+
+#[cfg(feature = "cuda")]
+use kn_cuda_eval::CudaNetwork;
+#[cfg(feature = "cuda")]
+use kn_cuda_sys::wrapper::handle::CudaDevice;
+
 use kz_core::network::job_channel::{Job, JobServer};
 use kz_core::network::{Network, ZeroEvaluation};
 
+use crate::server::server::InferenceDevice;
 use crate::superluminal::{CL_BLUE, CL_GREEN, CL_YELLOW};
 
 #[derive(Debug, Copy, Clone)]
@@ -33,6 +40,7 @@ pub fn batched_executor_loop<G, N, X, Y>(
     mut evaluate_batch: impl FnMut(&mut N, &[X]) -> Vec<Y>,
 ) {
     let thread_name = std::thread::current().name().unwrap_or("unnamed").to_owned();
+
     assert_ne!(max_batch_size, 0, "Got batch size 0 for {}", thread_name);
 
     let job_receiver = server.into_receiver();
@@ -40,26 +48,21 @@ pub fn batched_executor_loop<G, N, X, Y>(
     let mut state = State::new();
     let mut network: Option<N> = None;
 
-    // this is a separate flag and not just `graph_receiver.is_disconnected`
-    //   to ensure we have properly handled the disconnection event itself
     let mut graph_disconnected = false;
 
     loop {
-        // check that there is at least one channel to wait on
         assert!(network.is_some() || !graph_disconnected);
+
         let mut selector = Selector::new();
 
-        // only wait for graphs if the channel is still open
         if !graph_disconnected {
             selector = selector.recv(&graph_receiver, Message::Graph);
         }
 
-        // only wait for jobs if we already have a network, otherwise we're just pointlessly filling our buffers
         if network.is_some() {
             selector = selector.recv(&job_receiver, Message::Job);
         }
 
-        // block until we get a new message
         begin_event_with_color("wait", CL_YELLOW);
         let message = selector.wait();
         end_event();
@@ -69,101 +72,129 @@ pub fn batched_executor_loop<G, N, X, Y>(
                 handle_new_graph(&mut network, graph, &mut load_network, &thread_name);
                 continue;
             }
+
             Message::Job(job) => {
-                // safe because we only listen to the job channel if we have a network
                 let network = network.as_mut().unwrap();
 
                 match job {
                     Ok(job) => {
-                        // we've got a new job, great
                         state.push_job(job);
 
-                        // check for additional jobs (non-blocking)
-                        //   we could loop again but we might as well just fall back to the outer loop
                         while state.x.len() < max_batch_size {
                             match job_receiver.try_recv() {
-                                // yay, we've got an additional job
                                 Ok(job) => state.push_job(job),
-                                // we've run out of non-blocking jobs
                                 Err(TryRecvError::Empty) => break,
-                                // let the outer match deal with it
                                 Err(TryRecvError::Disconnected) => continue,
                             }
                         }
 
-                        // optionally evaluate some batches
                         if state.should_eval(run_condition, max_batch_size) {
                             run_eval(&mut state, network, &mut evaluate_batch, max_batch_size);
                         }
 
                         continue;
                     }
-                    Err(RecvError::Disconnected) => {
-                        // the job channel has disconnected
 
-                        // evaluate all remaining jobs if any
+                    Err(RecvError::Disconnected) => {
                         assert!(state.items_to_eval() < max_batch_size);
+
                         if state.items_to_eval() > 0 {
                             run_eval(&mut state, network, &mut evaluate_batch, max_batch_size);
                         }
+
                         assert!(state.items_to_eval() == 0 && state.items_to_send() == 0);
 
-                        // at this point we can safely exit, we won't get any more jobs
-                        //  this also closes the graph receiver
                         return;
                     }
                 }
             }
-            Message::Graph(Err(RecvError::Disconnected)) => {
-                // we'll never get a new graph again
-                match &network {
-                    Some(_) => {
-                        // .. but we do have a final network to continue evaluating batches with
-                        graph_disconnected = true;
-                        continue;
-                    }
-                    None => {
-                        // ... and we don't even have a network, make sure that that's okay
-                        // leftover jobs?
-                        if state.items_to_eval() > 0 {
-                            panic!(
-                                "Executor {}: graph disconnected by we still have items pending: {:?}",
-                                thread_name, state
-                            );
-                        }
-                        // wait for job receiver disconnection
-                        match job_receiver.recv() {
-                            Ok(_) => panic!("Executor {}: got new job after graph disconnection", thread_name),
-                            Err(RecvError::Disconnected) => {}
-                        }
-                        // we can safely exit this executor now that both channels are disconnected
-                        return;
-                    }
+
+            Message::Graph(Err(RecvError::Disconnected)) => match &network {
+                Some(_) => {
+                    graph_disconnected = true;
+                    continue;
                 }
-            }
+
+                None => {
+                    if state.items_to_eval() > 0 {
+                        panic!(
+                            "Executor {}: graph disconnected by we still have items pending: {:?}",
+                            thread_name, state
+                        );
+                    }
+
+                    match job_receiver.recv() {
+                        Ok(_) => panic!("Executor {}: got new job after graph disconnection", thread_name),
+                        Err(RecvError::Disconnected) => {}
+                    }
+
+                    return;
+                }
+            },
         };
+    }
+}
+
+#[derive(Debug)]
+pub enum AlphaZeroExecutorNetwork<B: Board, M: BoardMapper<B>> {
+    Cpu(PreparedNetwork<B, M>),
+
+    #[cfg(feature = "cuda")]
+    Cuda(CudaNetwork<M>),
+}
+
+impl<B: Board, M: BoardMapper<B>> Network<B> for AlphaZeroExecutorNetwork<B, M> {
+    fn max_batch_size(&self) -> usize {
+        match self {
+            Self::Cpu(network) => network.max_batch_size(),
+
+            #[cfg(feature = "cuda")]
+            Self::Cuda(network) => network.max_batch_size(),
+        }
+    }
+
+    fn evaluate_batch(&mut self, boards: &[impl std::borrow::Borrow<B>]) -> Vec<ZeroEvaluation<'static>> {
+        match self {
+            Self::Cpu(network) => network.evaluate_batch(boards),
+
+            #[cfg(feature = "cuda")]
+            Self::Cuda(network) => network.evaluate_batch(boards),
+        }
     }
 }
 
 pub fn alphazero_batched_executor_loop<B: Board, M: BoardMapper<B>>(
     max_batch_size: usize,
-    device: CudaDevice,
+    device: InferenceDevice,
     mapper: M,
     run_condition: RunCondition,
     graph: Graph,
     server: JobServer<B, ZeroEvaluation<'static>>,
 ) {
     let (graph_sender, graph_receiver) = flume::bounded(1);
-    graph_sender.send(Some(graph)).unwrap();
+    graph_sender.send(Some(graph.clone())).unwrap();
     drop(graph_sender);
+
+    let network = match device {
+        InferenceDevice::Cpu => {
+            AlphaZeroExecutorNetwork::Cpu(PreparedNetwork::new(mapper, Device::Cpu, graph, max_batch_size))
+        }
+
+        #[cfg(feature = "cuda")]
+        InferenceDevice::Cuda(device) => {
+            AlphaZeroExecutorNetwork::Cuda(CudaNetwork::new(mapper, &graph, max_batch_size, device))
+        }
+    };
+
+    let mut network = Some(network);
 
     batched_executor_loop(
         max_batch_size,
         run_condition,
         graph_receiver,
         server,
-        |graph| CudaNetwork::new(mapper, &graph, max_batch_size, device),
-        |network, batch_x| network.evaluate_batch(&batch_x),
+        move |_| network.take().unwrap(),
+        |network, batch_x| network.evaluate_batch(batch_x),
     )
 }
 
@@ -220,123 +251,69 @@ impl<X, Y> State<X, Y> {
     }
 
     fn push_job(&mut self, job: Job<X, Y>) {
-        // TODO we could avoid an extra vec copy if all batches we receive "happen to" have exact size max_batch_size
-        //   by keeping the single leading batch as a separate vec and falling back to deque if necessary
-        //   this is pretty complicated and shouldn't matter too much though
-
         let Job { x, sender } = job;
 
         if x.len() == 0 {
-            // avoid ever putting empty senders in the queue since that introduces tricky edge cases
             let _ = sender.send(vec![]);
         } else {
             self.senders.push_back((x.len(), sender));
             self.x.extend(x.into_iter());
         }
-
-        self.check_invariants();
-    }
-
-    fn should_eval(&self, cond: RunCondition, max_batch_size: usize) -> bool {
-        if self.x.len() == 0 {
-            return false;
-        }
-        if self.x.len() >= max_batch_size {
-            return true;
-        }
-
-        match cond {
-            RunCondition::FullBatch => false,
-            RunCondition::JobCount(count) => self.senders.len() >= count,
-            RunCondition::Any => self.x.len() > 0,
-        }
-    }
-
-    fn get_batch(&mut self, max_batch_size: usize) -> &[X] {
-        let batch_size = min(self.x.len(), max_batch_size);
-        assert_ne!(batch_size, 0);
-
-        if self.x.as_slices().0.len() < batch_size {
-            self.x.make_contiguous();
-        }
-
-        &self.x.as_slices().0[0..batch_size]
     }
 
     fn can_fill_next_sender(&self) -> bool {
-        match self.senders.get(0) {
-            None => {
-                assert_eq!(self.leftover_y.len(), 0);
-                false
-            }
-            Some(&(count, _)) => self.leftover_y.len() >= count,
+        if let Some(&(len, _)) = self.senders.front() {
+            self.leftover_y.len() >= len
+        } else {
+            false
         }
     }
 
-    // Distribute the given response over the appropriate senders.
-    // We ignore SendError here, since it's not our fault that the receiver stopped caring about the response.
-    fn respond_batch(&mut self, batch_y: Vec<Y>) {
-        let batch_size = batch_y.len();
-
-        // remove just-evaluated x-values
-        assert!(batch_size <= self.x.len());
-        drop(self.x.drain(0..batch_size));
-
-        if self.leftover_y.is_empty() && self.senders[0].0 == batch_size {
-            // shortcut to avoid extra copies, just send the entire vec immediately
-            let _ = self.senders.pop_front().unwrap().1.send(batch_y);
-        } else {
-            // add results to temporary storage
-            self.leftover_y.extend(batch_y.into_iter());
-
-            // send as many values out as possible
-            while self.can_fill_next_sender() {
-                let (count, sender) = self.senders.pop_front().unwrap();
-                let block_y = self.leftover_y.drain(0..count).collect_vec();
-                let _ = sender.send(block_y);
-            }
+    fn should_eval(&self, run_condition: RunCondition, max_batch_size: usize) -> bool {
+        match run_condition {
+            RunCondition::FullBatch => self.x.len() >= max_batch_size,
+            RunCondition::JobCount(job_count) => self.x.len() >= job_count * max_batch_size,
+            RunCondition::Any => !self.x.is_empty(),
         }
-
-        self.check_invariants();
     }
 }
 
 fn run_eval<X, Y, N>(
     state: &mut State<X, Y>,
     network: &mut N,
-    mut evaluate_batch: impl FnMut(&mut N, &[X]) -> Vec<Y>,
+    evaluate_batch: &mut impl FnMut(&mut N, &[X]) -> Vec<Y>,
     max_batch_size: usize,
 ) {
-    begin_event_with_color("run", CL_GREEN);
-    let batch_x = state.get_batch(max_batch_size);
-    let batch_y = evaluate_batch(network, batch_x);
+    begin_event_with_color("evaluate", CL_BLUE);
+
+    let eval_count = min(state.x.len(), max_batch_size);
+    let x = state.x.drain(..eval_count).collect_vec();
+    let y = evaluate_batch(network, &x);
+
     end_event();
 
-    begin_event_with_color("reply", CL_YELLOW);
-    state.respond_batch(batch_y);
-    end_event();
-}
+    state.leftover_y.extend(y);
 
-fn handle_new_graph<N, G>(
-    network: &mut Option<N>,
-    graph: Option<G>,
-    mut load_network: impl FnMut(G) -> N,
-    thread_name: &str,
-) {
-    // drop previous network if any to save GPU memory
-    if let Some(network) = network.take() {
-        begin_event_with_color("drop", CL_BLUE);
-        println!("{} dropping network", thread_name);
-        drop(network);
+    while state.can_fill_next_sender() {
+        let (len, sender) = state.senders.pop_front().unwrap();
+        let y = state.leftover_y.drain(..len).collect_vec();
+
+        begin_event_with_color("send results", CL_GREEN);
+        sender.send(y).unwrap();
         end_event();
     }
 
-    // load the new network if any
+    state.check_invariants();
+}
+
+fn handle_new_graph<G, N>(
+    network: &mut Option<N>,
+    graph: Option<G>,
+    load_network: &mut impl FnMut(G) -> N,
+    thread_name: &str,
+) {
     *network = graph.map(|graph| {
-        begin_event_with_color("load", CL_BLUE);
-        println!("{} loading new network", thread_name);
-        let network = load_network(graph);
-        end_event();
-        network
+        println!("Executor {}: got new graph", thread_name);
+        load_network(graph)
     });
 }

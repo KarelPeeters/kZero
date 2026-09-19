@@ -12,7 +12,7 @@ use kn_cuda_eval::CudaDevice;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
-use vampirc_uci::{UciMessage, UciTimeControl, UciSearchControl};
+use vampirc_uci::{UciMessage, UciSearchControl, UciTimeControl};
 
 use kz_core::mapping::chess::ChessStdMapper;
 use kz_core::network::cudnn::CudaNetwork;
@@ -134,8 +134,11 @@ fn main() -> std::io::Result<()> {
                     writeln!(log, "setting curr_board to {}", board)?;
                     tree = Some(Tree::new(board));
                 }
-                UciMessage::Go { time_control, search_control } => {
-                    if let Some(UciSearchControl { nodes, .. } ) = search_control {
+                UciMessage::Go {
+                    time_control,
+                    search_control,
+                } => {
+                    if let Some(UciSearchControl { nodes, .. }) = search_control {
                         max_nodes = nodes.unwrap();
                         start_time = Instant::now();
                         searching = true;
@@ -144,18 +147,24 @@ fn main() -> std::io::Result<()> {
                             alloc = match tc {
                                 UciTimeControl::Infinite => i64::MAX,
                                 UciTimeControl::MoveTime(x) => x.num_milliseconds(),
-                                UciTimeControl::TimeLeft { white_time, black_time, white_increment, black_increment, moves_to_go } => {
+                                UciTimeControl::TimeLeft {
+                                    white_time,
+                                    black_time,
+                                    white_increment,
+                                    black_increment,
+                                    moves_to_go,
+                                } => {
                                     let mtg = i64::from(moves_to_go.unwrap_or(25));
                                     let (remaining, inc) = match t.root_board().next_player() {
                                         Player::A => (white_time, white_increment),
                                         Player::B => (black_time, black_increment),
                                     };
                                     let remaining = remaining.unwrap().num_milliseconds();
-                                    let inc = if let Some(i) = inc {i.num_milliseconds()} else {0};
+                                    let inc = if let Some(i) = inc { i.num_milliseconds() } else { 0 };
 
                                     let base = remaining / mtg + 3 * inc / 4;
                                     (base.min(remaining) - 5).max(10)
-                                },
+                                }
                                 UciTimeControl::Ponder => unimplemented!(),
                             };
 

@@ -4,13 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-muzero = []
 default = []
+cuda = [
+    "dep:kn-cuda-eval",
+    "dep:kn-cuda-sys",
+    "kz-core/cuda",
+]
+muzero = ["kz-core/muzero", "cuda"]
 
 [dependencies]
 board-game.workspace = true
-kn-cuda-eval.workspace = true
-kn-cuda-sys.workspace = true
+kn-runtime = { workspace = true }
+kn-cuda-eval = { workspace = true, optional = true }
+kn-cuda-sys = { workspace = true, optional = true }
 kn-graph.workspace = true
 kz-core.workspace = true
 kz-util.workspace = true

@@ -12,7 +12,9 @@ use board_game::games::ttt::TTTBoard;
 use clap::Parser;
 use crossbeam::thread::Scope;
 use flume::{Receiver, Sender};
+#[cfg(feature = "cuda")]
 use itertools::Itertools;
+#[cfg(feature = "cuda")]
 use kn_cuda_sys::wrapper::handle::CudaDevice;
 use rand::rngs::StdRng;
 
@@ -38,20 +40,55 @@ use crate::server::start_pos::{ataxx_start_pos, go_start_pos};
 struct Args {
     #[clap(short, long)]
     port: Option<u16>,
+
     #[clap(short, long)]
     device: Vec<i32>,
+
+    #[clap(long)]
+    cpu: bool,
+}
+
+#[derive(Clone, Debug)]
+pub enum InferenceDevice {
+    Cpu,
+
+    #[cfg(feature = "cuda")]
+    Cuda(CudaDevice),
 }
 
 pub fn selfplay_server_main() {
     let args: Args = Args::parse();
 
-    let devices = if args.device.is_empty() {
-        CudaDevice::all().collect_vec()
+    assert!(
+        !(args.cpu && !args.device.is_empty()),
+        "--cpu cannot be used together with --device"
+    );
+
+    let devices = if args.cpu {
+        vec![InferenceDevice::Cpu]
     } else {
-        args.device.iter().map(|&d| CudaDevice::new(d).unwrap()).collect_vec()
+        #[cfg(feature = "cuda")]
+        {
+            let devices = if args.device.is_empty() {
+                CudaDevice::all().map(InferenceDevice::Cuda).collect_vec()
+            } else {
+                args.device
+                    .iter()
+                    .map(|&d| InferenceDevice::Cuda(CudaDevice::new(d).unwrap()))
+                    .collect_vec()
+            };
+
+            assert!(!devices.is_empty(), "No cuda devices found");
+            println!("Using devices: {:?}", devices);
+
+            devices
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            panic!("CUDA support was not enabled; use --cpu");
+        }
     };
-    assert!(!devices.is_empty(), "No cuda devices found");
-    println!("Using devices: {:?}", devices);
 
     let port = args.port.unwrap_or(63105);
     println!("Waiting for connection on port {}", port);
@@ -102,14 +139,11 @@ pub fn selfplay_server_main() {
 
 fn selfplay_start_dispatch_game(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<InferenceDevice>,
     startup_settings: StartupSettings,
     writer: BufWriter<&TcpStream>,
     reader: BufReader<&TcpStream>,
 ) {
-    //TODO static dispatch this early means we're generating a lot of code N times
-    //  is it actually that much? -> investigate with objdump or similar
-    //  would it be relatively easy to delay this dispatch some more?
     match game {
         Game::TTT => {
             assert_eq!(startup_settings.start_pos, "default");
@@ -204,7 +238,7 @@ fn selfplay_start_dispatch_spec_alt<
     F: Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
 >(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<InferenceDevice>,
     startup: StartupSettings,
     start_pos: F,
     mapper: M,
@@ -246,7 +280,7 @@ fn selfplay_start_dispatch_spec_non_alt<
     F: Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
 >(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<InferenceDevice>,
     startup: StartupSettings,
     start_pos: F,
     mapper: M,
@@ -290,7 +324,7 @@ pub trait ZeroSpecialization<B: Board, M: BoardMapper<B> + 'static> {
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: CudaDevice,
+        device: InferenceDevice,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,
@@ -303,7 +337,7 @@ pub trait ZeroSpecialization<B: Board, M: BoardMapper<B> + 'static> {
 
 fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B, M> + Send + Sync>(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<InferenceDevice>,
     startup: StartupSettings,
     mapper: M,
     start_pos: impl Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
@@ -321,16 +355,25 @@ fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B
     let (update_sender, update_receiver) = flume::bounded(total_cpu_threads);
 
     crossbeam::scope(|s| {
-        // spawn per-device threads
-        for (device_id, &device) in devices.iter().enumerate() {
+        for (device_id, device) in devices.iter().enumerate() {
             let start_pos = start_pos.clone();
-            let (mut new_settings_senders, mut new_graph_senders) =
-                spec.spawn_device_threads(s, device, device_id, &startup, mapper, start_pos, update_sender.clone());
+            let (mut new_settings_senders, mut new_graph_senders) = spec.spawn_device_threads(
+                s,
+                match device {
+                    InferenceDevice::Cpu => InferenceDevice::Cpu,
+                    #[cfg(feature = "cuda")]
+                    InferenceDevice::Cuda(device) => InferenceDevice::Cuda(device.clone()),
+                },
+                device_id,
+                &startup,
+                mapper,
+                start_pos,
+                update_sender.clone(),
+            );
             settings_senders.append(&mut new_settings_senders);
             graph_senders.append(&mut new_graph_senders);
         }
 
-        // spawn collector
         s.builder()
             .name("collector".to_string())
             .spawn(move |_| {
@@ -347,7 +390,6 @@ fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B
             })
             .unwrap();
 
-        // spawn commander
         s.builder()
             .name("commander".to_string())
             .spawn(move |_| {
@@ -356,8 +398,6 @@ fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B
                 });
             })
             .unwrap();
-
-        // implicitly join all spawned threads
     })
     .unwrap();
 }

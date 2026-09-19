@@ -14,6 +14,7 @@ pub mod symmetry;
 
 // TODO remove CPU/GPU separation, this is already handled by kn-runtime
 pub mod cpu;
+#[cfg(feature = "cuda")]
 pub mod cudnn;
 pub mod prepared;
 
