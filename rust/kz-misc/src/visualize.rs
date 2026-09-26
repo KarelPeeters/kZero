@@ -84,7 +84,7 @@ pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
 
         if shape == &value_shape {
             // tanh(value_logit) -> 0..1
-            vec![VisTensor::abs(tensor.mapv(|x| (x.tanh() + 1.0 / 2.0)).to_shared())]
+            vec![VisTensor::abs(tensor.mapv(|x| x.tanh() + 1.0 / 2.0).to_shared())]
         } else if shape == &wdl_shape {
             // softmax(wdl_logits)
             vec![VisTensor::abs(softmax(tensor.view(), Axis(1)).to_shared())]
@@ -94,7 +94,7 @@ pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
                 VisTensor::abs(
                     tensor
                         .index_axis(Axis(1), 0)
-                        .mapv(|x| (x.tanh() + 1.0 / 2.0))
+                        .mapv(|x| x.tanh() + 1.0 / 2.0)
                         .to_shared(),
                 ),
                 VisTensor::abs(softmax(tensor.slice_axis(Axis(1), Slice::from(1..4)), Axis(1)).to_shared()),
@@ -104,7 +104,7 @@ pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
             let flat_shape = (boards.len(), mapper.policy_len());
             let full_shape = [&[boards.len()][..], mapper.policy_shape()].concat();
 
-            let flat_logits = tensor.reshape(flat_shape);
+            let flat_logits = tensor.to_shape(flat_shape).unwrap();
             let mut flat_result: Array2<f32> = Array2::zeros(flat_shape);
 
             let mut buffer = vec![];
@@ -132,7 +132,7 @@ pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
                 }
                 // otherwise leave result as zero
             }
-            let result = flat_result.into_shape(full_shape).unwrap().to_shared();
+            let result = flat_result.into_shape_with_order(full_shape).unwrap().to_shared();
             vec![VisTensor::abs(result)]
         } else {
             panic!("Unexpected output shape {}", shape);

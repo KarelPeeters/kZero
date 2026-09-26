@@ -40,7 +40,7 @@ fn main() {
                     &[k, c] => (k, c, 1, 1),
                     _ => continue,
                 };
-                let data = data.unwrap_f32().unwrap().reshape((k, c, h, w));
+                let data = data.unwrap_f32().unwrap().to_shape((k, c, h, w)).unwrap();
 
                 let shape_name = shape.iter().map(ToString::to_string).join("x");
                 let image_path = PathBuf::from(format!(
@@ -56,7 +56,7 @@ fn main() {
 
                 println!("Saving filters for layer {}_{}", v.index(), shape_name);
 
-                let mut sorted = data.to_owned().into_raw_vec();
+                let mut sorted = data.to_owned().into_raw_vec_and_offset().0;
                 sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
                 let q_min = sorted[sorted.len() / 100];
                 let q_max = sorted[99 * sorted.len() / 100];

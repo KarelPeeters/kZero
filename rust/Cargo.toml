@@ -45,10 +45,10 @@ licorice = { path = "licorice" }
 pgn-reader = { path = "pgn-reader" }
 
 # Kyanite subcrates
-kn-graph = "0.7.3"
-kn-cuda-sys = "0.7.3"
-kn-cuda-eval = "0.7.3"
-kn-runtime = "0.7.3"
+kn-graph = "0.8.0"
+kn-cuda-sys = "0.8.0"
+kn-cuda-eval = "0.8.0"
+kn-runtime = "0.8.0"
 #kn-graph = { path = "../../Kyanite/kn-graph" }
 #kn-cuda-sys = { path = "../../Kyanite/kn-cuda-sys" }
 #kn-cuda-eval = { path = "../../Kyanite/kn-cuda-eval" }
@@ -81,7 +81,7 @@ itertools = "0.11.0"
 lazy_static = "1.4.0"
 lru = "0.7.8" # stuck at old version due to not allowing empty caches any more
 memchr = "2.6.3"
-ndarray = "0.15.6"
+ndarray = "0.17.2"
 num-traits = "0.2.16"
 palette = { version = "0.7.3", default-features = false, features = ["std"] }
 prost = "0.12.1"

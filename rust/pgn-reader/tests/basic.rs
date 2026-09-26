@@ -3,7 +3,7 @@ use internal_iterator::InternalIterator;
 
 use pgn_reader::{PgnMove, PgnReader, PgnResult};
 
-fn read(input: &str) -> PgnReader<Memory<()>> {
+fn read(input: &str) -> PgnReader<Memory<'_, ()>> {
     let read = Memory::new(input.as_bytes());
     PgnReader::new(read)
 }

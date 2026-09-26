@@ -207,7 +207,7 @@ impl<B: Board> Tree<B> {
     }
 
     #[must_use]
-    pub fn display(&self, max_depth: usize, sort: bool, max_children: usize, expand_all: bool) -> TreeDisplay<B> {
+    pub fn display(&self, max_depth: usize, sort: bool, max_children: usize, expand_all: bool) -> TreeDisplay<'_, B> {
         TreeDisplay {
             tree: self,
 

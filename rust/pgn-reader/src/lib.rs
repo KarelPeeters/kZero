@@ -226,7 +226,7 @@ fn variation_length(left: &str) -> usize {
 
 // we cannot implement Iterator here since the PgnGame has a lifetime dependant on self
 impl<R: BufferedReader<()>> PgnReader<R> {
-    pub fn next_game(&mut self) -> Result<Option<PgnGame>, Error> {
+    pub fn next_game(&mut self) -> Result<Option<PgnGame<'_>>, Error> {
         self.input.consume(self.prev_game_length);
         if self.input.eof() {
             return Ok(None);

@@ -32,7 +32,7 @@ pub struct ZeroEvaluation<'a> {
 }
 
 impl ZeroEvaluation<'_> {
-    pub fn shallow_clone(&self) -> ZeroEvaluation {
+    pub fn shallow_clone(&self) -> ZeroEvaluation<'_> {
         ZeroEvaluation {
             values: self.values,
             policy: Cow::Borrowed(self.policy.borrow()),
