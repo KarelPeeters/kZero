@@ -7,14 +7,14 @@ use board_game::games::chess::{ChessBoard, Rules};
 use decorum::Total;
 use internal_iterator::InternalIterator;
 use itertools::Itertools;
-use kn_cuda_eval::CudaDevice;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::optimize_graph;
+use kn_runtime::Device;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use kz_core::mapping::chess::ChessStdMapper;
-use kz_core::network::cudnn::CudaNetwork;
+use kz_core::network::prepared::PreparedNetwork;
 use kz_core::zero::node::UctWeights;
 use kz_core::zero::step::{FpuMode, QMode};
 use kz_core::zero::wrapper::ZeroSettings;
@@ -29,7 +29,7 @@ fn main() {
     let visits = 10_000;
 
     let mapper = ChessStdMapper;
-    let mut network = CudaNetwork::new(mapper, &graph, settings.batch_size, CudaDevice::new(0).unwrap());
+    let mut network = PreparedNetwork::new(mapper, &Device::best(), graph, settings.batch_size);
     let mut rng = StdRng::from_entropy();
 
     let puzzle_path = "../data/lichess/lichess_db_puzzle.csv";

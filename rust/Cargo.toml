@@ -46,12 +46,9 @@ pgn-reader = { path = "pgn-reader" }
 
 # Kyanite subcrates
 kn-graph = "0.8.0"
-kn-cuda-sys = "0.8.0"
-kn-cuda-eval = "0.8.0"
 kn-runtime = "0.8.0"
 #kn-graph = { path = "../../Kyanite/kn-graph" }
-#kn-cuda-sys = { path = "../../Kyanite/kn-cuda-sys" }
-#kn-cuda-eval = { path = "../../Kyanite/kn-cuda-eval" }
+#kn-runtime = { path = "../../Kyanite/kn-runtime" }
 
 # crates.io depedencies
 anyhow = "1.0.75"

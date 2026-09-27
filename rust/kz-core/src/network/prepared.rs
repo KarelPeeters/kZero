@@ -21,7 +21,7 @@ pub struct PreparedNetwork<B: Board, M: BoardMapper<B>> {
 }
 
 impl<B: Board, M: BoardMapper<B>> PreparedNetwork<B, M> {
-    pub fn new(mapper: M, device: Device, graph: Graph, batch_size: usize) -> Self {
+    pub fn new(mapper: M, device: &Device, graph: Graph, batch_size: usize) -> Self {
         Self {
             mapper,
             graph: device.prepare(graph, batch_size),

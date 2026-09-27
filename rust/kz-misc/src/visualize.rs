@@ -1,19 +1,19 @@
 use board_game::board::{Board, Player};
-use kn_graph::cpu::softmax;
-use kn_graph::dtype::DTensor;
-use kn_graph::graph::Value;
-use kn_graph::ndarray::{Array2, Axis};
+use kn_graph::cpu::{cpu_eval_graph_exec, softmax};
+use kn_graph::dtype::{DTensor, Tensor};
+use kn_graph::graph::{Graph, Value};
+use kn_graph::ndarray::{Array2, Axis, IxDyn};
 use kn_graph::shape;
 use kn_graph::shape::Size;
 use kn_graph::visualize::{visualize_graph_activations, Image, VisTensor};
 use ndarray::{s, ArrayView1, Slice};
 
 use kz_core::mapping::BoardMapper;
-use kz_core::network::common::softmax_in_place;
-use kz_core::network::cpu::CPUNetwork;
+use kz_core::network::common::{check_graph_shapes, softmax_in_place};
 
 pub fn visualize_network_activations_split<B: Board, M: BoardMapper<B>>(
-    network: &mut CPUNetwork<B, M>,
+    graph: &Graph,
+    mapper: M,
     boards: &[B],
     max_images: Option<usize>,
     show_variance: bool,
@@ -23,8 +23,8 @@ pub fn visualize_network_activations_split<B: Board, M: BoardMapper<B>>(
 
     (
         // (only print the details once)
-        visualize_network_activations(network, &boards_a, max_images, show_variance, print_details),
-        visualize_network_activations(network, &boards_b, max_images, show_variance, false),
+        visualize_network_activations(graph, mapper, &boards_a, max_images, show_variance, print_details),
+        visualize_network_activations(graph, mapper, &boards_b, max_images, show_variance, false),
     )
 }
 
@@ -46,16 +46,30 @@ fn split_player<B: Board>(boards: &[B]) -> (Vec<B>, Vec<B>) {
 //  the basic idea is to add all tensors we want to plot as extra graph outputs
 //  usually this will not be all of them, and we can decide in advance by looking at the shapes
 pub fn visualize_network_activations<B: Board, M: BoardMapper<B>>(
-    network: &mut CPUNetwork<B, M>,
+    graph: &Graph,
+    mapper: M,
     boards: &[B],
     max_images: Option<usize>,
     show_variance: bool,
     print_details: bool,
 ) -> Vec<Image> {
-    let exec = network.evaluate_batch_exec(boards, true);
+    check_graph_shapes(mapper, graph);
 
-    let graph = network.graph();
-    let mapper = network.mapper();
+    // encode the input
+    let batch_size = boards.len();
+    let mut input = vec![];
+    for board in boards {
+        mapper.encode_input_full(&mut input, board);
+    }
+    let input_len = input.len();
+
+    let mut input_shape = vec![batch_size];
+    input_shape.extend_from_slice(&mapper.input_full_shape());
+    let input = Tensor::from_shape_vec(IxDyn(&input_shape), input)
+        .unwrap_or_else(|_| panic!("Incompatible shapes: ({}) -> {:?}", input_len, input_shape));
+
+    // evaluate the graph on the CPU, keeping all intermediate values
+    let exec = cpu_eval_graph_exec(graph, batch_size, &[DTensor::F32(input)], true);
 
     let output_count = graph.outputs().len();
     assert!(

@@ -6,13 +6,13 @@ use board_game::board::Board;
 use flume::{Receiver, RecvError, Selector, Sender, TryRecvError};
 use futures::never::Never;
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
+use kn_runtime::Device;
 use superluminal_perf::{begin_event_with_color, end_event};
 
 use kz_core::mapping::BoardMapper;
-use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::{Job, JobServer};
+use kz_core::network::prepared::PreparedNetwork;
 use kz_core::network::{Network, ZeroEvaluation};
 
 use crate::superluminal::{CL_BLUE, CL_GREEN, CL_YELLOW};
@@ -147,7 +147,7 @@ pub fn batched_executor_loop<G, N, X, Y>(
 
 pub fn alphazero_batched_executor_loop<B: Board, M: BoardMapper<B>>(
     max_batch_size: usize,
-    device: CudaDevice,
+    device: Device,
     mapper: M,
     run_condition: RunCondition,
     graph: Graph,
@@ -162,7 +162,7 @@ pub fn alphazero_batched_executor_loop<B: Board, M: BoardMapper<B>>(
         run_condition,
         graph_receiver,
         server,
-        |graph| CudaNetwork::new(mapper, &graph, max_batch_size, device),
+        |graph| PreparedNetwork::new(mapper, &device, graph, max_batch_size),
         |network, batch_x| network.evaluate_batch(&batch_x),
     )
 }

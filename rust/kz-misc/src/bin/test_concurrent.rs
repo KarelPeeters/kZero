@@ -2,14 +2,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Barrier;
 
 use clap::Parser;
-use itertools::{enumerate, Itertools};
-use kn_cuda_eval::executor::CudaExecutor;
-use kn_cuda_eval::tester::{assert_tensors_match, check_tensors_match};
-use kn_cuda_sys::wrapper::handle::CudaDevice;
+use itertools::Itertools;
 use kn_graph::dtype::{DTensor, Tensor};
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::{optimize_graph, OptimizerSettings};
+#[cfg(feature = "cuda")]
+use kn_runtime::CudaDevice;
+use kn_runtime::Device;
 use rand::distributions::Standard;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
@@ -29,6 +29,28 @@ struct Args {
 
 type IOPair = (Vec<DTensor>, Vec<DTensor>);
 
+fn select_devices(indices: &[i32]) -> Vec<Device> {
+    #[cfg(feature = "cuda")]
+    {
+        if indices.is_empty() {
+            CudaDevice::all().map(Device::Cuda).collect_vec()
+        } else {
+            indices
+                .iter()
+                .map(|&d| Device::Cuda(CudaDevice::new(d).unwrap()))
+                .collect_vec()
+        }
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    {
+        panic!(
+            "test_concurrent requires the cuda feature, got {} device indices",
+            indices.len()
+        );
+    }
+}
+
 fn main() {
     let Args {
         batch_size,
@@ -37,11 +59,7 @@ fn main() {
         path,
     } = Args::parse();
 
-    let devices = if devices.is_empty() {
-        CudaDevice::all().collect_vec()
-    } else {
-        devices.into_iter().map(|d| CudaDevice::new(d).unwrap()).collect_vec()
-    };
+    let devices = select_devices(&devices);
 
     println!("Using devices {:?}", devices);
     assert!(!devices.is_empty());
@@ -51,7 +69,7 @@ fn main() {
 
     println!("Generating io pairs");
     let mut rng = SmallRng::from_entropy();
-    let pairs = generate_io_pairs(*devices.first().unwrap(), &graph, batch_size, 16, &mut rng);
+    let pairs = generate_io_pairs(devices.first().unwrap(), &graph, batch_size, 16, &mut rng);
 
     println!("Launching threads");
     let barrier = Barrier::new(devices.len() * threads);
@@ -63,12 +81,12 @@ fn main() {
         let barrier = &barrier;
         let failed = &failed;
 
-        for (di, device) in enumerate(devices) {
+        for (di, device) in devices.iter().enumerate() {
             for thread in 0..threads {
                 s.builder()
                     .name(format!("thread-{}-{}", di, thread))
                     .spawn(move |_| {
-                        device_thread_main(device, &graph, batch_size, pairs, barrier, failed);
+                        device_thread_main(device, graph, batch_size, pairs, barrier, failed);
                     })
                     .unwrap();
             }
@@ -78,13 +96,13 @@ fn main() {
 }
 
 fn generate_io_pairs(
-    device: CudaDevice,
+    device: &Device,
     graph: &Graph,
     batch_size: usize,
     count: usize,
     rng: &mut impl Rng,
 ) -> Vec<IOPair> {
-    let mut executor = CudaExecutor::new(device, graph, batch_size);
+    let mut prepared = device.prepare(graph.clone(), batch_size);
 
     // TODO generalize to different types
     // TODO just use the common dummy_inputs function?
@@ -100,15 +118,38 @@ fn generate_io_pairs(
                 })
                 .collect_vec();
 
-            let outputs = executor.evaluate(&inputs).to_owned();
+            let outputs = prepared.eval(&inputs);
 
             (inputs, outputs)
         })
         .collect_vec()
 }
 
+fn tensors_match(expected: &[DTensor], actual: &[DTensor]) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+
+    expected.iter().zip(actual).all(|(e, a)| match (e, a) {
+        (DTensor::F32(e), DTensor::F32(a)) => {
+            if e.shape() != a.shape() {
+                return false;
+            }
+
+            let e = e.as_slice().unwrap();
+            let a = a.as_slice().unwrap();
+            e.iter().zip(a).all(|(&e, &a)| {
+                let abs = (e - a).abs();
+                let rel = abs / e.abs().max(1e-8);
+                abs < 1e-3 || rel < 1e-3
+            })
+        }
+        _ => e == a,
+    })
+}
+
 fn device_thread_main(
-    device: CudaDevice,
+    device: &Device,
     graph: &Graph,
     batch_size: usize,
     pairs: &[IOPair],
@@ -119,7 +160,7 @@ fn device_thread_main(
     let thread_name = std::thread::current().name().unwrap().to_owned();
 
     println!("{}: Building executor", thread_name);
-    let mut executor = CudaExecutor::new(device, graph, batch_size);
+    let mut prepared = device.prepare(graph.clone(), batch_size);
 
     // wait for all executors to be constructed, since the memcopies
     // they cause cannot run in parallel with other threads
@@ -131,13 +172,13 @@ fn device_thread_main(
         }
 
         let (input, expected) = pairs.choose(rng).unwrap();
-        let actual = executor.evaluate(&input);
+        let actual = prepared.eval(input);
 
-        if check_tensors_match(&expected, &actual).is_err() {
+        if !tensors_match(expected, &actual) {
             failed.store(true, Ordering::SeqCst);
 
             eprintln!("{} Iteration {} failed", thread_name, i);
-            assert_tensors_match(expected, &actual, false);
+            panic!("Output mismatch: expected {:?}, actual {:?}", expected, actual);
         } else {
             println!("{}: Iteration {} success", thread_name, i);
         }

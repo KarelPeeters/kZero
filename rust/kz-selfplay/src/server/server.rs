@@ -13,7 +13,7 @@ use clap::Parser;
 use crossbeam::thread::Scope;
 use flume::{Receiver, Sender};
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::CudaDevice;
+use kn_runtime::Device;
 use rand::rngs::StdRng;
 
 use kz_core::mapping::arimaa::ArimaaSplitMapper;
@@ -34,24 +34,67 @@ use crate::server::server_alphazero::AlphaZeroSpecialization;
 use crate::server::server_muzero::MuZeroSpecialization;
 use crate::server::start_pos::{ataxx_start_pos, go_start_pos};
 
+#[derive(Debug, Clone, Copy)]
+enum DeviceArg {
+    Cpu,
+    Cuda(i32),
+}
+
+fn parse_device(s: &str) -> Result<DeviceArg, String> {
+    if s.eq_ignore_ascii_case("cpu") {
+        Ok(DeviceArg::Cpu)
+    } else {
+        s.parse::<i32>()
+            .map(DeviceArg::Cuda)
+            .map_err(|_| format!("Invalid device '{}', expected a cuda index or 'cpu'", s))
+    }
+}
+
 #[derive(Debug, clap::Parser)]
 struct Args {
     #[clap(short, long)]
     port: Option<u16>,
-    #[clap(short, long)]
-    device: Vec<i32>,
+    #[clap(short, long, value_parser = parse_device)]
+    device: Vec<DeviceArg>,
+}
+
+fn select_devices(devices: &[DeviceArg]) -> Vec<Device> {
+    if devices.is_empty() {
+        #[cfg(feature = "cuda")]
+        {
+            let all = kn_runtime::CudaDevice::all().collect_vec();
+            if !all.is_empty() {
+                return all.into_iter().map(Device::Cuda).collect_vec();
+            }
+        }
+
+        return vec![Device::Cpu];
+    }
+
+    devices
+        .iter()
+        .map(|&device| match device {
+            DeviceArg::Cpu => Device::Cpu,
+            DeviceArg::Cuda(index) => {
+                #[cfg(feature = "cuda")]
+                {
+                    Device::Cuda(kn_runtime::CudaDevice::new(index).unwrap())
+                }
+                #[cfg(not(feature = "cuda"))]
+                {
+                    panic!("Cannot use cuda device {} without the cuda feature", index);
+                }
+            }
+        })
+        .collect_vec()
 }
 
 pub fn selfplay_server_main() {
     let args: Args = Args::parse();
 
-    let devices = if args.device.is_empty() {
-        CudaDevice::all().collect_vec()
-    } else {
-        args.device.iter().map(|&d| CudaDevice::new(d).unwrap()).collect_vec()
-    };
-    assert!(!devices.is_empty(), "No cuda devices found");
-    println!("Using devices: {:?}", devices);
+    let devices = select_devices(&args.device);
+    assert!(!devices.is_empty(), "No devices found");
+    println!("Using devices {:?}", devices);
 
     let port = args.port.unwrap_or(63105);
     println!("Waiting for connection on port {}", port);
@@ -102,7 +145,7 @@ pub fn selfplay_server_main() {
 
 fn selfplay_start_dispatch_game(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<Device>,
     startup_settings: StartupSettings,
     writer: BufWriter<&TcpStream>,
     reader: BufReader<&TcpStream>,
@@ -204,7 +247,7 @@ fn selfplay_start_dispatch_spec_alt<
     F: Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
 >(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<Device>,
     startup: StartupSettings,
     start_pos: F,
     mapper: M,
@@ -246,7 +289,7 @@ fn selfplay_start_dispatch_spec_non_alt<
     F: Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
 >(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<Device>,
     startup: StartupSettings,
     start_pos: F,
     mapper: M,
@@ -290,7 +333,7 @@ pub trait ZeroSpecialization<B: Board, M: BoardMapper<B> + 'static> {
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: CudaDevice,
+        device: &'s Device,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,
@@ -303,7 +346,7 @@ pub trait ZeroSpecialization<B: Board, M: BoardMapper<B> + 'static> {
 
 fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B, M> + Send + Sync>(
     game: Game,
-    devices: Vec<CudaDevice>,
+    devices: Vec<Device>,
     startup: StartupSettings,
     mapper: M,
     start_pos: impl Fn(&mut StdRng) -> B + Send + Sync + Clone + 'static,
@@ -322,7 +365,7 @@ fn selfplay_start<B: Board, M: BoardMapper<B> + 'static, Z: ZeroSpecialization<B
 
     crossbeam::scope(|s| {
         // spawn per-device threads
-        for (device_id, &device) in devices.iter().enumerate() {
+        for (device_id, device) in devices.iter().enumerate() {
             let start_pos = start_pos.clone();
             let (mut new_settings_senders, mut new_graph_senders) =
                 spec.spawn_device_threads(s, device, device_id, &startup, mapper, start_pos, update_sender.clone());

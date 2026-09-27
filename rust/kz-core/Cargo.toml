@@ -6,13 +6,12 @@ edition = "2021"
 [features]
 # TODO fix all muzero code and remove the feature again
 muzero = []
+cuda = ["kn-runtime/cuda"]
 default = []
 
 [dependencies]
 kz-util.workspace = true
 
-kn-cuda-eval.workspace = true
-kn-cuda-sys.workspace = true
 kn-graph.workspace = true
 kn-runtime.workspace = true
 

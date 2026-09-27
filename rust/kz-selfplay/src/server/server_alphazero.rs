@@ -4,16 +4,16 @@ use board_game::board::Board;
 use crossbeam::thread::Scope;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
-use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
 use kn_graph::onnx::load_graph_from_onnx_path;
 use kn_graph::optimizer::optimize_graph;
+use kn_runtime::Device;
 use rand::rngs::StdRng;
 use rand::thread_rng;
 
 use kz_core::mapping::BoardMapper;
-use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::job_pair;
+use kz_core::network::prepared::PreparedNetwork;
 use kz_core::network::symmetry::RandomSymmetryNetwork;
 use kz_core::network::Network;
 use kz_util::math::ceil_div;
@@ -32,7 +32,7 @@ impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for 
     fn spawn_device_threads<'s>(
         &self,
         s: &Scope<'s>,
-        device: CudaDevice,
+        device: &'s Device,
         device_id: usize,
         startup: &StartupSettings,
         mapper: M,
@@ -104,7 +104,8 @@ impl<B: Board + Hash, M: BoardMapper<B> + 'static> ZeroSpecialization<B, M> for 
                         eval_server,
                         |graph| {
                             graph.map_left(|graph| {
-                                let inner = CudaNetwork::new(mapper, &graph, gpu_batch_size, device);
+                                // TODO ideally we could avoid graph clones here
+                                let inner = PreparedNetwork::new(mapper, device, graph.as_ref().clone(), gpu_batch_size);
                                 RandomSymmetryNetwork::new(inner, thread_rng(), eval_random_symmetries)
                             })
                         },

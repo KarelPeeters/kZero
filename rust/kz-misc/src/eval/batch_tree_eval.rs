@@ -4,14 +4,14 @@ use board_game::board::Board;
 use flume::Sender;
 use futures::executor::ThreadPoolBuilder;
 use itertools::Itertools;
-use kn_cuda_sys::wrapper::handle::CudaDevice;
 use kn_graph::graph::Graph;
+use kn_runtime::Device;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use kz_core::mapping::BoardMapper;
-use kz_core::network::cudnn::CudaNetwork;
 use kz_core::network::job_channel::job_pair;
+use kz_core::network::prepared::PreparedNetwork;
 use kz_core::network::{EvalClient, Network};
 use kz_core::zero::values::ZeroValuesPov;
 use kz_core::zero::wrapper::ZeroSettings;
@@ -39,7 +39,7 @@ pub fn batch_tree_eval<B: Board>(
     zero_settings: ZeroSettings,
     graph: Graph,
     mapper: impl BoardMapper<B>,
-    device: CudaDevice,
+    device: Device,
 ) -> Vec<ZeroValuesPov> {
     let position_count = positions.len();
 
@@ -104,7 +104,7 @@ pub fn batch_tree_eval<B: Board>(
                     RunCondition::Any,
                     graph_receiver,
                     job_server,
-                    |graph| CudaNetwork::new(mapper, &graph, network_batch_size, device),
+                    |graph| PreparedNetwork::new(mapper, &device, graph, network_batch_size),
                     move |network, batch_x| {
                         let result = network.evaluate_batch(&batch_x);
 

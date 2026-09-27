@@ -149,7 +149,7 @@ fn main_game<B: Board, M: BoardMapper<B>>(args: &Args, board: B, mapper: M) -> s
     };
     println!("Using device {:?}", device);
 
-    let network_inner = PreparedNetwork::new(mapper, device, graph, args.batch_size);
+    let network_inner = PreparedNetwork::new(mapper, &device, graph, args.batch_size);
     let mut network = RandomSymmetryNetwork::new(network_inner, thread_rng(), args.random_symmetries);
 
     // TODO expose as params?

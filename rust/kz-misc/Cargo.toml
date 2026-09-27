@@ -5,12 +5,12 @@ edition = "2021"
 
 [features]
 muzero = ["kz-core/muzero"]
+cuda = ["kn-runtime/cuda", "kz-core/cuda", "kz-selfplay/cuda"]
 
 [dependencies]
 board-game.workspace = true
-kn-cuda-eval.workspace = true
-kn-cuda-sys.workspace = true
 kn-graph.workspace = true
+kn-runtime.workspace = true
 kz-core.workspace = true
 kz-selfplay.workspace = true
 kz-util.workspace = true

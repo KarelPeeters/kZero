@@ -8,14 +8,14 @@ use board_game::games::chess::{ChessBoard, Rules};
 use board_game::pov::NonPov;
 use board_game::wdl::WDL;
 use flume::{Receiver, RecvError, Sender, TryRecvError};
-use kn_cuda_eval::CudaDevice;
 use kn_graph::onnx::load_graph_from_onnx_path;
+use kn_runtime::Device;
 use rand::rngs::StdRng;
 use rand::{thread_rng, SeedableRng};
 use vampirc_uci::{UciMessage, UciTimeControl, UciSearchControl};
 
 use kz_core::mapping::chess::ChessStdMapper;
-use kz_core::network::cudnn::CudaNetwork;
+use kz_core::network::prepared::PreparedNetwork;
 use kz_core::zero::node::UctWeights;
 use kz_core::zero::step::{FpuMode, QMode};
 use kz_core::zero::tree::Tree;
@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
     let settings = ZeroSettings::simple(batch_size, UctWeights::default(), QMode::wdl(), FpuMode::Relative(0.0));
 
     let graph = load_graph_from_onnx_path(path, false).unwrap();
-    let mut network = CudaNetwork::new(ChessStdMapper, &graph, batch_size, CudaDevice::new(0).unwrap());
+    let mut network = PreparedNetwork::new(ChessStdMapper, &Device::best(), graph, batch_size);
     let mut rng = StdRng::from_entropy();
 
     // state
